@@ -19,8 +19,8 @@ CXX_WARNINGS=-pedantic -Wall -Wextra -Wcast-align -Wcast-qual \
 	-pedantic
 
 CXX_FLAGS := -std=c++17
-CXX_FLAGS += -O3
-# CXX_FLAGS += -DST_DEBUG -g3
+# CXX_FLAGS += -O3
+CXX_FLAGS += -DSLOPE_DEBUG -g3
 
 %.o: %.cc $(CXX_HEADERS) Makefile
 	g++ $(CXX_FLAGS) $(CXX_WARNINGS) $(CXX_INCLUDE) -MMD -MP -c -o $@ $<
