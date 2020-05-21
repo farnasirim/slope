@@ -27,13 +27,18 @@ class mig_ptr {
   }
 
   mig_ptr(const mig_ptr&) = delete;
+  mig_ptr(mig_ptr&&) = delete;
   mig_ptr& operator==(const mig_ptr&) = delete;
-  mig_ptr& operator==(mig_ptr&&) = delete;
   mig_ptr& operator==(mig_ptr&&) = delete;
 
   // direct operations on ptr must not cause new memory allocations
   T *get() {
     return ptr;
+  }
+
+  std::unique_ptr<std::lock_guard<std::mutex>> acquire_context() {
+    auto& outer_allocator = alloc::allocator_instance<T>();
+    return outer_allocator.acquire_context(ptr);
   }
 
   //

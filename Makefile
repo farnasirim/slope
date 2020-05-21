@@ -18,7 +18,7 @@ CXX_WARNINGS=-pedantic -Wall -Wextra -Wcast-align -Wcast-qual \
 	-Wshadow -Wwrite-strings -Wno-unused-parameter -Wfloat-equal \
 	-pedantic
 
-CXX_FLAGS := -std=c++17
+CXX_FLAGS := -std=c++17 -pthread -lrdmacm -libverbs -lmemcached 
 # CXX_FLAGS += -O3
 CXX_FLAGS += -DSLOPE_DEBUG -g3
 

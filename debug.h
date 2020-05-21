@@ -52,4 +52,13 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T, Alloc>& v) {
 #  define debline() do { } while(0);
 #endif  // SLOPE_DEBUG
 
+#define prompt(x) do { \
+  std::string _; \
+  std::cout << (x) << std::endl; \
+  std::cin >> _; \
+} while(false);
+
+template<typename... Args>
+struct Typer;
+
 #endif  // SLOPE_DEBUG_H_
