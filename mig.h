@@ -26,13 +26,21 @@ class mig_ptr {
     }
   }
 
-  // static mig_ptr from_mem(T* mem) {
+  mig_ptr(const mig_ptr&) = delete;
+  mig_ptr& operator==(const mig_ptr&) = delete;
+  mig_ptr& operator==(mig_ptr&&) = delete;
+  mig_ptr& operator==(mig_ptr&&) = delete;
 
-  // }
-
+  // direct operations on ptr must not cause new memory allocations
   T *get() {
     return ptr;
   }
+
+  //
+  // ~mig_ptr() {
+  //   // TODO: ?
+  // }
+  //
 
  private:
   T *ptr;

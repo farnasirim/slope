@@ -56,6 +56,7 @@ struct FixedPoolAllocator {
 
   [[nodiscard]]
   static std::unique_ptr<std::lock_guard<std::mutex>> acquire_context(T* obj) {
+    // No relation to unique lock: we're not deferring the acquisiton of the lock
     auto lock = std::make_unique<std::lock_guard<std::mutex>>(allocation_mutex);
 
     if(obj == context_init) {
