@@ -36,9 +36,20 @@ class mig_ptr {
     return ptr;
   }
 
+  void push_back(T some_value) {
+    auto& outer_allocator = alloc::allocator_instance<T>();
+    auto lock = outer_allocator.acquire_context(ptr);
+    ptr->push_back(some_value);
+  }
+
   std::unique_ptr<std::lock_guard<std::mutex>> acquire_context() {
     auto& outer_allocator = alloc::allocator_instance<T>();
     return outer_allocator.acquire_context(ptr);
+  }
+
+  std::vector<alloc::memory_chunk> get_pages() {
+    auto& outer_allocator = alloc::allocator_instance<T>();
+    return outer_allocator.get_pages(ptr);
   }
 
   //

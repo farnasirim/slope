@@ -54,6 +54,11 @@ struct FixedPoolAllocator {
   template <class U> constexpr FixedPoolAllocator(
       const FixedPoolAllocator<U>&) noexcept {}
 
+  static std::vector<memory_chunk> get_pages(T* ptr) {
+    auto& segments = object_allocations[reinterpret_cast<uintptr_t>(ptr)];
+    return std::vector<memory_chunk>(segments.begin(), segments.end());
+  }
+
   [[nodiscard]]
   static std::unique_ptr<std::lock_guard<std::mutex>> acquire_context(T* obj) {
     // No relation to unique lock: we're not deferring the acquisiton of the lock
@@ -81,6 +86,7 @@ struct FixedPoolAllocator {
     n = align_to_page(n);
     deb(n);
 
+    deb(current_mem);
     auto start_addr = current_mem;
     current_mem += n;
     deb(static_cast<void*>(current_mem));
@@ -97,6 +103,9 @@ struct FixedPoolAllocator {
       current_context = ret;
     }
 
+    std::cout << std::hex << " : " << reinterpret_cast<uintptr_t>(current_context) << std::endl;
+    std::cout << std::hex << " :: " << memory_chunk(reinterpret_cast<uintptr_t>(ret), n) << std::endl;
+    std::cout << std::endl;
     object_allocations[reinterpret_cast<uintptr_t>(current_context)]
       .insert(memory_chunk(reinterpret_cast<uintptr_t>(ret), n));
 
@@ -107,7 +116,9 @@ struct FixedPoolAllocator {
     // ?
     // keep the inverse maps from alloc, find the owner of this chunk,
     // correct the object_allocaitons data structure.
-    std::cout << "dealloc" << std::endl;
+    // object_allocations[reinterpret_cast<uintptr_t>].erase(
+    //     make_pair(/all
+    std::cout << "dealloc: " << p << std::endl;
   }
 };
 
