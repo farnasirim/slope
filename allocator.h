@@ -12,8 +12,8 @@
 #include <iostream>
 #include <unordered_map>
 #include <set>
-#include <mutex>
 #include <memory>
+#include <vector>
 
 #include "slope.h"
 #include "debug.h"
@@ -23,11 +23,6 @@ void add_mmap(void) __attribute__((constructor));
 namespace slope {
 namespace alloc {
 
-namespace context {
-
-extern const uintptr_t context_init;
-
-}  // context
 
 extern char *mem;
 extern char *current_mem;
@@ -38,8 +33,30 @@ extern size_t mem_size;
 using memory_chunk = std::pair<uintptr_t, size_t>;
 extern std::unordered_map<uintptr_t, std::set<slope::alloc::memory_chunk>>
   object_allocations;
+extern std::unordered_map<uintptr_t, uintptr_t> addr_to_owner;
 
-extern std::mutex allocation_mutex;
+class OwnershipFrame: public std::enable_shared_from_this<OwnershipFrame> {
+ public:
+  OwnershipFrame(std::vector<std::shared_ptr<OwnershipFrame>>& ownership_stack,
+      uintptr_t ptr);
+  ~OwnershipFrame();
+
+  OwnershipFrame(const OwnershipFrame&) = delete;
+  OwnershipFrame& operator=(const OwnershipFrame&) = delete;
+  OwnershipFrame& operator=(OwnershipFrame&&) = delete;
+  OwnershipFrame(OwnershipFrame&& rhs) = delete;
+
+  void push();
+
+  uintptr_t get_ptr() const;
+  void set_ptr(uintptr_t ptr);
+
+ private:
+  std::vector<std::shared_ptr<OwnershipFrame>>& ownership_stack;
+  uintptr_t ptr_;
+};
+
+extern std::vector<std::shared_ptr<OwnershipFrame>> global_ownership_stack;
 
 // Has to be stateless. Must not allow mem to be passed in during object
 // creation.
@@ -48,7 +65,7 @@ struct FixedPoolAllocator {
   typedef T value_type;
 
   static constexpr T* context_init = nullptr;
-  static inline T* current_context;
+  static constexpr uintptr_t context_to_be_initialized = static_cast<uintptr_t>(-1);
 
   FixedPoolAllocator() = default;
   template <class U> constexpr FixedPoolAllocator(
@@ -60,17 +77,14 @@ struct FixedPoolAllocator {
   }
 
   [[nodiscard]]
-  static std::unique_ptr<std::lock_guard<std::mutex>> acquire_context(T* obj) {
-    // No relation to unique lock: we're not deferring the acquisiton of the lock
-    auto lock = std::make_unique<std::lock_guard<std::mutex>>(allocation_mutex);
-
+  static std::shared_ptr<OwnershipFrame> create_context(T* obj) {
+    auto owner = reinterpret_cast<uintptr_t>(obj);
     if(obj == context_init) {
-      current_context = nullptr;
-    } else {
-      current_context = obj;
+      owner = context_to_be_initialized;
     }
-
-    return lock;
+    auto ret = std::make_shared<OwnershipFrame>(global_ownership_stack, owner);
+    ret->push();
+    return ret;
   };
 
   std::size_t align_to_page(std::size_t n) const {
@@ -85,8 +99,9 @@ struct FixedPoolAllocator {
     deb(n);
     n = align_to_page(n);
     deb(n);
+    deb(global_ownership_stack);
 
-    deb(current_mem);
+    deb(reinterpret_cast<void *>(current_mem));
     auto start_addr = current_mem;
     current_mem += n;
     deb(static_cast<void*>(current_mem));
@@ -99,25 +114,25 @@ struct FixedPoolAllocator {
 
     auto ret = reinterpret_cast<T*>(start_addr);
 
-    if(current_context == nullptr) {
-      current_context = ret;
+    if(global_ownership_stack.back()->get_ptr() == context_to_be_initialized) {
+      global_ownership_stack.back()->set_ptr(reinterpret_cast<uintptr_t>(ret));
     }
 
-    std::cout << std::hex << " : " << reinterpret_cast<uintptr_t>(current_context) << std::endl;
+    std::cout << std::hex << " : " << global_ownership_stack.back()->get_ptr() << std::endl;
     std::cout << std::hex << " :: " << memory_chunk(reinterpret_cast<uintptr_t>(ret), n) << std::endl;
     std::cout << std::endl;
-    object_allocations[reinterpret_cast<uintptr_t>(current_context)]
+    object_allocations[global_ownership_stack.back()->get_ptr()]
       .insert(memory_chunk(reinterpret_cast<uintptr_t>(ret), n));
+    addr_to_owner[reinterpret_cast<uintptr_t>(ret)] = global_ownership_stack.back()->get_ptr();
 
     return ret;
   }
 
-  void deallocate(T* p, std::size_t) noexcept {
-    // ?
-    // keep the inverse maps from alloc, find the owner of this chunk,
-    // correct the object_allocaitons data structure.
-    // object_allocations[reinterpret_cast<uintptr_t>].erase(
-    //     make_pair(/all
+  void deallocate(T* p, std::size_t sz) noexcept {
+    auto addr = reinterpret_cast<uintptr_t>(p);
+    auto owner = addr_to_owner[addr];
+    addr_to_owner.erase(owner);
+    object_allocations[owner].erase(std::make_pair(addr, sz));
     std::cout << "dealloc: " << p << std::endl;
   }
 };

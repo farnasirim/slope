@@ -17,12 +17,13 @@ template<typename T>
 using mig_alloc = slope::alloc::FixedPoolAllocator<T>;
 
 void do_src() {
+  debout("first");
   slope::mig_ptr<mig_vector<int>> ptr(static_cast<size_t>(10), 0);
+  std::cout << "before" << std::endl;
   {
-    auto lock = ptr.acquire_context();
+    auto lock = ptr.create_context();
     for(size_t i = 0;i < 10; i++) {
       (*ptr.get())[i] = i;
-      // ptr.get()->push_back(i);
     }
   }
 

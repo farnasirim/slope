@@ -8,7 +8,6 @@
 
 #include <unordered_map>
 #include <set>
-#include <mutex>
 
 void add_mmap(void) {
   slope::alloc::page_size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
@@ -36,13 +35,40 @@ char *current_mem;
 size_t page_size;
 size_t num_pages;
 size_t mem_size;
-
-std::mutex allocation_mutex;
+std::vector<std::shared_ptr<OwnershipFrame>> global_ownership_stack;
+std::unordered_map<uintptr_t, uintptr_t> addr_to_owner;
 
 // Don't do ANYTHING else with uintptr_t as it would be UB
 // i.e. (just store and retrieve)
 std::unordered_map<uintptr_t, std::set<slope::alloc::memory_chunk>>
   object_allocations;
+
+
+OwnershipFrame::OwnershipFrame(std::vector<std::shared_ptr<OwnershipFrame>>&
+    ownership_stack_ref, uintptr_t ptr):
+  ownership_stack(ownership_stack_ref), ptr_(ptr) {
+}
+
+void OwnershipFrame::push() {
+  ownership_stack.push_back(shared_from_this());
+}
+
+OwnershipFrame::~OwnershipFrame() {
+  if(ptr_ != 0) {
+    auto now = ownership_stack.back();
+    assert(this == ownership_stack.back().get());
+    ownership_stack.pop_back();
+  }
+}
+
+uintptr_t OwnershipFrame::get_ptr() const {
+  return ptr_;
+}
+
+void OwnershipFrame::set_ptr(uintptr_t ptr) {
+  ptr_ = ptr;
+}
+
 
 }  // namespace alloc
 }  // namespace slope

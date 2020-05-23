@@ -14,15 +14,16 @@ class mig_ptr {
  public:
   template<typename ...Args>
   mig_ptr(Args&& ...args) {
-    debout("here");
     {
-      debout("inside");
       auto outer_allocator = alloc::allocator_instance<T>();
-      auto lock = outer_allocator.acquire_context(outer_allocator.context_init);
-      debout("locked");
+      debout("create context");
+      auto context = outer_allocator.create_context(outer_allocator.context_init);
+      debout("alloc for object");
       auto object_mem = outer_allocator.allocate(sizeof(T));
+      debout("call ctor of object");
       new(object_mem) T(std::forward<Args>(args)...);
       ptr = object_mem;
+      std::cout << "aboute done" << std::endl;
     }
   }
 
@@ -36,15 +37,8 @@ class mig_ptr {
     return ptr;
   }
 
-  void push_back(T some_value) {
-    auto& outer_allocator = alloc::allocator_instance<T>();
-    auto lock = outer_allocator.acquire_context(ptr);
-    ptr->push_back(some_value);
-  }
-
-  std::unique_ptr<std::lock_guard<std::mutex>> acquire_context() {
-    auto& outer_allocator = alloc::allocator_instance<T>();
-    return outer_allocator.acquire_context(ptr);
+  std::shared_ptr<alloc::OwnershipFrame> create_context() {
+    return alloc::allocator_instance<T>().create_context(ptr);
   }
 
   std::vector<alloc::memory_chunk> get_pages() {
