@@ -1,8 +1,22 @@
 #ifndef DISCOVERY_H_
 #define DISCOVERY_H_
 
+#include <string>
 #include <libmemcached/memcached.h>
 #include <cstdint>
+
+namespace slope {
+namespace discovery {
+
+class DiscoverySerivce {
+ public:
+  virtual void register_node(const std::string& my_id, const std::string& info) = 0;
+  virtual std::string wait_for(const std::string& other_id) = 0;
+  virtual ~DiscoverySerivce() = default;
+};
+
+}  // namespace discovery
+}  // namespace slope
 
 struct QpInfo {
   uint16_t lid;
