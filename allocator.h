@@ -116,7 +116,7 @@ struct FixedPoolAllocator {
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
       throw std::bad_alloc();
     }
-    deb(n);
+    n *= sizeof(T);
     n = align_to_page(n);
     deb(n);
     deb(global_ownership_stack);
