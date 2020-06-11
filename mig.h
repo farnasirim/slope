@@ -37,7 +37,7 @@ class mig_ptr {
     return ptr;
   }
 
-  std::shared_ptr<alloc::OwnershipFrame> create_context() {
+  std::unique_ptr<alloc::OwnershipLock> create_context() {
     return alloc::allocator_instance<T>().create_context(ptr);
   }
 
