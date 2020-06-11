@@ -23,7 +23,6 @@ void add_mmap(void) __attribute__((constructor));
 namespace slope {
 namespace alloc {
 
-
 extern char *mem;
 extern char *current_mem;
 extern size_t page_size;
@@ -39,7 +38,7 @@ class OwnershipFrame: public std::enable_shared_from_this<OwnershipFrame> {
  public:
   OwnershipFrame(std::vector<std::shared_ptr<OwnershipFrame>>& ownership_stack,
       uintptr_t ptr);
-  ~OwnershipFrame();
+  ~OwnershipFrame() = default;
 
   OwnershipFrame(const OwnershipFrame&) = delete;
   OwnershipFrame& operator=(const OwnershipFrame&) = delete;
@@ -54,6 +53,27 @@ class OwnershipFrame: public std::enable_shared_from_this<OwnershipFrame> {
  private:
   std::vector<std::shared_ptr<OwnershipFrame>>& ownership_stack;
   uintptr_t ptr_;
+ friend class OwnershipLock;
+};
+
+class OwnershipLock {
+ public:
+  OwnershipLock(std::shared_ptr<OwnershipFrame> frame): frame_(frame) {
+
+  }
+  ~OwnershipLock() {
+    assert(frame_.get() == frame_->ownership_stack.back().get());
+    frame_->ownership_stack.pop_back();
+    frame_ = nullptr;
+    assert(frame_.use_count() == 0);
+  }
+ private:
+  OwnershipLock(const OwnershipLock&) = delete;
+  OwnershipLock& operator=(const OwnershipLock&) = delete;
+  OwnershipLock& operator=(OwnershipLock&&) = delete;
+  OwnershipLock(OwnershipLock&& rhs) = delete;
+
+  std::shared_ptr<OwnershipFrame> frame_;
 };
 
 extern std::vector<std::shared_ptr<OwnershipFrame>> global_ownership_stack;
@@ -77,14 +97,14 @@ struct FixedPoolAllocator {
   }
 
   [[nodiscard]]
-  static std::shared_ptr<OwnershipFrame> create_context(T* obj) {
+  static std::unique_ptr<OwnershipLock> create_context(T* obj) {
     auto owner = reinterpret_cast<uintptr_t>(obj);
     if(obj == context_init) {
       owner = context_to_be_initialized;
     }
     auto ret = std::make_shared<OwnershipFrame>(global_ownership_stack, owner);
     ret->push();
-    return ret;
+    return std::make_unique<OwnershipLock>(ret);
   };
 
   std::size_t align_to_page(std::size_t n) const {

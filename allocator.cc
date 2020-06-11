@@ -53,14 +53,6 @@ void OwnershipFrame::push() {
   ownership_stack.push_back(shared_from_this());
 }
 
-OwnershipFrame::~OwnershipFrame() {
-  if(ptr_ != 0) {
-    auto now = ownership_stack.back();
-    assert(this == ownership_stack.back().get());
-    ownership_stack.pop_back();
-  }
-}
-
 uintptr_t OwnershipFrame::get_ptr() const {
   return ptr_;
 }
