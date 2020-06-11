@@ -14,7 +14,7 @@
 
 #include <libmemcached/memcached.h>
 
-#include "discovery.h"
+#include "memcached.h"
 #include "ib.h"
 #include "ib_container.h"
 #include "logging.h"
@@ -29,17 +29,44 @@ struct payload {
   char msg[20];
 };
 
+
 int main(int argc, char **argv) {
-  if(argc != 3) {
+  if(argc < 4) {
     std::cerr << "incorrect num args" << std::endl;
     exit(-1);
   }
+
   int machine_id = atoi(argv[1]);
   char *memcached_confstr = argv[2];
 
-  testdrive_migrate(machine_id);
+  std::vector<std::string> peers;
+  auto self_id = argv[1];
+
+  for(int i = 3; i < argc; i++) {
+    std::string current_arg = argv[i];
+    std::string peer_arg = "--peer=";
+    if(current_arg.find(peer_arg) == 0) {
+      auto maybe_peer = current_arg.substr(peer_arg.size());
+      if(maybe_peer == argv[1]) {
+        continue;
+      }
+      peers.push_back(current_arg.substr(peer_arg.size()));
+      deb(peers);
+    }
+  }
+  slope::discovery::Memcached m("SLOPE_DISCOVERY_", argv[2], peers);
+  testdrive_migrate(m, self_id);
+  return 0;
+
   IbvDeviceContextByName ib_context("mlx5_1");
   IbvAllocPd pd(ib_context.get());
+
+  {
+    ibv_gid gid;
+    ibv_query_gid(ib_context.get(), 1, 0, &gid);
+    deb(gid.global.subnet_prefix);
+    deb(gid.global.interface_id);
+  }
 
   // size_t num_messages = 128;
   // size_t msg_size = 256;
@@ -57,6 +84,46 @@ int main(int argc, char **argv) {
   {
     int ret = ibv_query_device(ib_context.get(), &dev_attrs);
     deb(static_cast<int>(dev_attrs.phys_port_cnt));
+    deb(dev_attrs.fw_ver[64]);
+    deb(dev_attrs.node_guid);
+    deb(dev_attrs.sys_image_guid);
+    deb(dev_attrs.max_mr_size);
+    deb(dev_attrs.page_size_cap);
+    deb(dev_attrs.vendor_id);
+    deb(dev_attrs.vendor_part_id);
+    deb(dev_attrs.hw_ver);
+    deb(dev_attrs.max_qp);
+    deb(dev_attrs.max_qp_wr);
+    deb(dev_attrs.device_cap_flags);
+    deb(dev_attrs.max_sge);
+    deb(dev_attrs.max_sge_rd);
+    deb(dev_attrs.max_cq);
+    deb(dev_attrs.max_cqe);
+    deb(dev_attrs.max_mr);
+    deb(dev_attrs.max_pd);
+    deb(dev_attrs.max_qp_rd_atom);
+    deb(dev_attrs.max_ee_rd_atom);
+    deb(dev_attrs.max_res_rd_atom);
+    deb(dev_attrs.max_qp_init_rd_atom);
+    deb(dev_attrs.max_ee_init_rd_atom);
+    deb(static_cast<int>(dev_attrs.atomic_cap));
+    deb(dev_attrs.max_ee);
+    deb(dev_attrs.max_rdd);
+    deb(dev_attrs.max_mw);
+    deb(dev_attrs.max_raw_ipv6_qp);
+    deb(dev_attrs.max_raw_ethy_qp);
+    deb(dev_attrs.max_mcast_grp);
+    deb(dev_attrs.max_mcast_qp_attach);
+    deb(dev_attrs.max_total_mcast_qp_attach);
+    deb(dev_attrs.max_ah);
+    deb(dev_attrs.max_fmr);
+    deb(dev_attrs.max_map_per_fmr);
+    deb(dev_attrs.max_srq);
+    deb(dev_attrs.max_srq_wr);
+    deb(dev_attrs.max_srq_sge);
+    deb(dev_attrs.max_pkeys);
+    deb(dev_attrs.local_ca_ack_delay);
+    deb(dev_attrs.phys_port_cnt);
     assert(!ret);
   }
 
@@ -64,6 +131,8 @@ int main(int argc, char **argv) {
   {
     int ret = ibv_query_port(ib_context.get(), 1, &port_attr);
     deb(port_attr.lid);
+    // deb(port_attr.flags);
+    //deb(port_attr.port_cap_flags2);
     assert(!ret);
   }
 
@@ -280,6 +349,8 @@ int main(int argc, char **argv) {
     struct ibv_sge sge = {};
     sge.lkey = mr->lkey;
     sge.addr = reinterpret_cast<uint64_t>(mem);
+    deb(mr->addr);
+    deb(sge.addr);
     sge.length = sizeof (*p);
 
     struct ibv_recv_wr *bad_wr;

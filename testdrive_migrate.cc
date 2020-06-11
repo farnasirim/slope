@@ -16,16 +16,39 @@ using mig_vector = std::vector<T, slope::alloc::FixedPoolAllocator<T>>;
 template<typename T>
 using mig_alloc = slope::alloc::FixedPoolAllocator<T>;
 
-void do_src() {
+#include "json.hpp"
+
+using json = nlohmann::json;
+
+void do_common(slope::discovery::DiscoverySerivce& d, const char *node_id) {
+  json info ;
+  info["node_id"] = node_id;
+  d.register_node(node_id, info.dump());
+  auto peers_info = d.wait_for_peers();
+
+  for(auto inf: peers_info) {
+    deb(inf.first);
+    deb(inf.second);
+  }
+
+}
+
+void do_src(slope::discovery::DiscoverySerivce& d, const char *node_id) {
+  do_common(d, node_id);
+
   debout("first");
   slope::mig_ptr<mig_vector<int>> ptr(static_cast<size_t>(10), 0);
   std::cout << "before" << std::endl;
+  deb(slope::alloc::global_ownership_stack.size());
   {
+    deb(slope::alloc::global_ownership_stack.size());
     auto lock = ptr.create_context();
+    deb(slope::alloc::global_ownership_stack.size());
     for(size_t i = 0;i < 10; i++) {
       (*ptr.get())[i] = i;
     }
   }
+  deb(slope::alloc::global_ownership_stack.size());
 
   for(size_t i = 0;i < 10; i++) {
     std::cout << (*ptr.get())[i] << " ";
@@ -36,28 +59,31 @@ void do_src() {
   deb(*ptr.get());
 
   for(auto it: ptr.get_pages()) {
-    std::cout << std::hex << it << std::endl;
+    deb(it);
     // rdma address: it.first with size it.second to another machine
   }
 
+  deb(slope::alloc::global_ownership_stack.size());
+  // for(auto& it: slope::alloc::global_ownership_stack) {
+  //   it.
+  // }
 
+  // IbvDeviceContextByName ib_context("mlx5_1");
+  // IbvAllocPd pd(ib_context.get());
 
-  IbvDeviceContextByName ib_context("mlx5_1");
-  IbvAllocPd pd(ib_context.get());
-
-  int flags =
-      IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+  // int flags =
+  //     IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 
 }
 
-void do_snk() {
-
+void do_snk(slope::discovery::DiscoverySerivce& d, const char *node_id) {
+  do_common(d, node_id);
 }
 
-void testdrive_migrate(int machine_id) {
-  if(machine_id == 0) {
-    do_src();
+void testdrive_migrate(slope::discovery::DiscoverySerivce& d, const char *node_id) {
+  if(std::string(node_id).find("0") != std::string::npos) {
+    do_src(d, node_id);
   } else {
-    do_snk();
+    do_snk(d, node_id);
   }
 }

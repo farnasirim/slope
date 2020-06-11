@@ -1,2 +1,15 @@
+export memcached_address=10.70.20.185
 
-killall memcached; memcached -l 0.0.0.0 & ./slope $ID --SERVER=10.70.20.185
+if [[ $(hostname) == colonelthink ]]; then
+    memcached_address=127.0.0.1
+fi
+
+if [[ $ID == 0 ]]; then
+    killall -9 slope
+    killall -9 memcached
+    memcached -l 0.0.0.0 &
+fi
+
+export peers="--peer=0 --peer=1"
+
+sleep 1 && ./slope $ID --SERVER=$memcached_address $peers

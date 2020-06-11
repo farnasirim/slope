@@ -3,6 +3,7 @@
 
 #include <string>
 #include <libmemcached/memcached.h>
+#include <vector>
 #include <cstdint>
 
 namespace slope {
@@ -12,6 +13,7 @@ class DiscoverySerivce {
  public:
   virtual void register_node(const std::string& my_id, const std::string& info) = 0;
   virtual std::string wait_for(const std::string& other_id) = 0;
+  virtual std::vector<std::pair<std::string, std::string>> wait_for_peers() = 0;
   virtual ~DiscoverySerivce() = default;
 };
 
