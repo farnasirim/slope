@@ -1,5 +1,8 @@
 #include "testdrive_migrate.h"
 
+#include <unistd.h>
+#include <iomanip>
+
 #include "discovery.h"
 #include "ib.h"
 #include "ib_container.h"
@@ -20,15 +23,41 @@ using mig_alloc = slope::alloc::FixedPoolAllocator<T>;
 
 using json = nlohmann::json;
 
+void to_json(json& j, const NodeInfo& inf) {
+  j = json{
+    {"node_id", inf.node_id}
+  };
+}
+
+void from_json(const json& j, NodeInfo& inf) {
+  j.at("node_id").get_to(inf.node_id);
+}
+
 void do_common(slope::discovery::DiscoverySerivce& d, const char *node_id) {
   json info ;
   info["node_id"] = node_id;
+
+  char name[200];
+  assert(!gethostname(name, 200));
+  if(std::strcmp(name, "colonelthink")) {
+    IbvDeviceContextByName ib_context("mlx5_1");
+    IbvAllocPd pd(ib_context.get());
+  }
+
+  deb(info);
   d.register_node(node_id, info.dump());
   auto peers_info = d.wait_for_peers();
+
+
+  if(node_id == min_element(peers_info.begin(), peers_info.end())->first) {
+    // init control plane
+  }
 
   for(auto inf: peers_info) {
     deb(inf.first);
     deb(inf.second);
+    deb(json::parse(inf.second).dump(4));
+    // std::cout << std::setw(4) <<  json(inf.second).dump(4) << std::endl;
   }
 
 }

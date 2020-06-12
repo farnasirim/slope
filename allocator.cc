@@ -16,7 +16,7 @@ void add_mmap(void) {
 
   slope::alloc::mem = static_cast<char*>(mmap(reinterpret_cast<void*>(SLOPE_MEM_ADDR),
       slope::alloc::mem_size,
-      PROT_READ | PROT_WRITE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
+      PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
       -1, 0));
   if(slope::alloc::mem == MAP_FAILED) {
     std::perror("mmap (constructor)");

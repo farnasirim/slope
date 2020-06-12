@@ -2,8 +2,10 @@
 #define SLOPE_ALLOCATOR_H_
 
 #include <unistd.h>
-
+#include <sys/mman.h>
 #include <cstdint>
+#include <cstdio>
+#include <cerrno>
 #include <cstdlib>
 #include <cassert>
 
@@ -132,6 +134,10 @@ struct FixedPoolAllocator {
       throw std::bad_alloc();
     }
 
+    if(mprotect(start_addr, n, PROT_READ | PROT_WRITE)) {
+      perror("mprotect");
+      assert(false);
+    }
     auto ret = reinterpret_cast<T*>(start_addr);
 
     if(global_ownership_stack.back()->get_ptr() == context_to_be_initialized) {

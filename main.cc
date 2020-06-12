@@ -19,6 +19,8 @@
 #include "ib_container.h"
 #include "logging.h"
 #include "modify_qp.h"
+#include "slope.h"
+#include "allocator.h"
 
 #include "debug.h"
 
@@ -54,6 +56,21 @@ int main(int argc, char **argv) {
       deb(peers);
     }
   }
+
+  if(find(peers.begin(), peers.end(), self_id) == peers.end()) {
+    peers.push_back(self_id);
+  }
+  sort(peers.begin(), peers.end());
+
+
+  auto node_index = static_cast<size_t>(find(peers.begin(), peers.end(), self_id) - peers.begin());
+  auto num_pages_for_each_node = SLOPE_NUM_PAGES/peers.size();
+  auto start_page_for_current_node = num_pages_for_each_node * node_index;
+  deb(sizeof(node_index));
+  deb(sizeof(start_page_for_current_node));
+  deb(sizeof(num_pages_for_each_node));
+  slope::alloc::current_mem += start_page_for_current_node * slope::alloc::page_size;
+
   slope::discovery::Memcached m("SLOPE_DISCOVERY_", argv[2], peers);
   testdrive_migrate(m, self_id);
   return 0;

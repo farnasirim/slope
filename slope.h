@@ -2,7 +2,7 @@
 #define SLOPE_SLOPE_H_
 
 #ifndef SLOPE_NUM_PAGES
-#define SLOPE_NUM_PAGES 65536
+#define SLOPE_NUM_PAGES 8388608
 #endif  // SLOPE_NUM_PAGES
 
 #ifndef SLOPE_MEM_ADDR
