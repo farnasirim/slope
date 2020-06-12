@@ -13,6 +13,8 @@
 #include "mig.h"
 #include "allocator.h"
 
+#include "control.h"
+
 template<typename T>
 using mig_vector = std::vector<T, slope::alloc::FixedPoolAllocator<T>>;
 
@@ -33,7 +35,10 @@ void from_json(const json& j, NodeInfo& inf) {
   j.at("node_id").get_to(inf.node_id);
 }
 
-void do_common(slope::discovery::DiscoverySerivce& d, const char *node_id) {
+void do_src(slope::discovery::DiscoverySerivce& d,
+    slope::control::ControlPlane::ptr control_plane,
+    const char *node_id) {
+
   json info ;
   info["node_id"] = node_id;
 
@@ -62,8 +67,11 @@ void do_common(slope::discovery::DiscoverySerivce& d, const char *node_id) {
 
 }
 
-void do_src(slope::discovery::DiscoverySerivce& d, const char *node_id) {
-  do_common(d, node_id);
+void do_snk(slope::discovery::DiscoverySerivce& d,
+    slope::control::ControlPlane::ptr control_plane,
+    const char *node_id) {
+
+  do_common(d, control_plane, node_id);
 
   debout("first");
   slope::mig_ptr<mig_vector<int>> ptr(static_cast<size_t>(10), 0);
@@ -105,14 +113,18 @@ void do_src(slope::discovery::DiscoverySerivce& d, const char *node_id) {
 
 }
 
-void do_snk(slope::discovery::DiscoverySerivce& d, const char *node_id) {
-  do_common(d, node_id);
+void do_common(slope::discovery::DiscoverySerivce& d,
+    slope::control::ControlPlane::ptr control_plane,
+    const char *node_id) {
+  do_common(d, control_plane, node_id);
 }
 
-void testdrive_migrate(slope::discovery::DiscoverySerivce& d, const char *node_id) {
+void testdrive_migrate(slope::discovery::DiscoverySerivce& d,
+    slope::control::ControlPlane::ptr control_plane,
+    const char *node_id) {
   if(std::string(node_id).find("0") != std::string::npos) {
-    do_src(d, node_id);
+    do_src(d, control_plane, node_id);
   } else {
-    do_snk(d, node_id);
+    do_snk(d, control_plane, node_id);
   }
 }

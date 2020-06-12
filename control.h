@@ -2,6 +2,9 @@
 #define SLOPE_CONTROL_H_
 
 #include <memory>
+#include <vector>
+
+#include "allocator.h"
 
 namespace slope {
 namespace control {
@@ -10,7 +13,8 @@ class ControlPlane {
  public:
   using ptr = std::shared_ptr<ControlPlane>;
 
-  virtual bool do_migrate() = 0;
+  virtual bool do_migrate(const std::string& dest,
+      const std::vector<slope::alloc::memory_chunk>&) = 0;
 };
 
 }  // namespace control

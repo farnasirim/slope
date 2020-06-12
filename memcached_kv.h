@@ -1,0 +1,5 @@
+#ifndef SLOPE_MEMCACHED_KV_H_
+#define SLOPE_MEMCACHED_KV_H_
+
+
+#endif  // SLOPE_MEMCACHED_KV_H_
