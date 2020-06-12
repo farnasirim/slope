@@ -22,6 +22,9 @@
 #include "slope.h"
 #include "allocator.h"
 
+#include "rdma_control.h"
+#include "memcached_kv.h"
+
 #include "debug.h"
 
 #include "testdrive_migrate.h"
@@ -70,6 +73,11 @@ int main(int argc, char **argv) {
   deb(sizeof(start_page_for_current_node));
   deb(sizeof(num_pages_for_each_node));
   slope::alloc::current_mem += start_page_for_current_node * slope::alloc::page_size;
+
+  auto kv = std::make_unique<slope::keyvalue::Memcached>(argv[2]);
+  auto slope_kv = std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
+      std::move(kv), "SLOPE_");
+  // slope::control::RdmaControlPlane controlplane();
 
   slope::discovery::Memcached m("SLOPE_DISCOVERY_", argv[2], peers);
   testdrive_migrate(m, nullptr, self_id);

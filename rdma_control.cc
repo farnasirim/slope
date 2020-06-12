@@ -7,14 +7,18 @@
 namespace slope {
 namespace control {
 
-RdmaControlPlane::RdmaControlPlane(std::string kv_prefix,
+RdmaControlPlane::RdmaControlPlane(std::string self_name,
+      std::vector<std::string> cluster_nodes,
+      std::string kv_prefix,
       slope::keyvalue::KeyValueService::ptr keyvalue_service,
       slope::dataplane::DataPlane::ptr dataplane):
+  self_name_(std::move(self_name)),
+  cluster_nodes_(std::move(cluster_nodes)),
   keyvalue_service_(std::make_shared<slope::keyvalue::KeyValuePrefixMiddleware>(
         keyvalue_service,
-        kv_prefix)
-      ),
+        kv_prefix) ),
   dataplane_(dataplane) {
+
 }
 
 bool RdmaControlPlane::do_migrate(const std::string& dest,

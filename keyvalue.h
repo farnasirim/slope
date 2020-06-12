@@ -12,20 +12,25 @@ class KeyValueService {
   virtual bool compare_and_swap(const std::string& key,
       const std::string& oldv, const std::string& newv) = 0;
   virtual bool set(const std::string& key, const std::string& val) = 0;
+  virtual bool get(const std::string& key, std::string& ret) = 0;
+  virtual bool wait_for(const std::string& key, std::string& ret) = 0;
+
   using ptr = std::shared_ptr<KeyValueService>;
 };
 
 class KeyValuePrefixMiddleware: public KeyValueService {
  public:
 
-  KeyValuePrefixMiddleware(KeyValueService::ptr, const std::string prefix);
+  KeyValuePrefixMiddleware(std::unique_ptr<KeyValueService> impl, const std::string prefix);
 
   virtual bool compare_and_swap(const std::string& key,
       const std::string& oldv, const std::string& newv) final override;
   virtual bool set(const std::string& key, const std::string& val) final override;
+  virtual bool get(const std::string& key, std::string& ret) final override;
+  virtual bool wait_for(const std::string& key, std::string& ret) final override;
   using ptr = std::shared_ptr<KeyValueService>;
  private:
-  KeyValueService::ptr impl_;
+  std::unique_ptr<KeyValueService> impl_;
   const std::string prefix_;
 };
 

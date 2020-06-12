@@ -26,7 +26,9 @@ class RdmaControlPlane: public ControlPlane {
     return do_migrate(dest, p->get_pages());
   }
 
-  RdmaControlPlane(std::string kv_prefix,
+  RdmaControlPlane(std::string self_name,
+      std::vector<std::string> cluster_nodes,
+      std::string kv_prefix,
       slope::keyvalue::KeyValueService::ptr keyvalue_service,
       slope::dataplane::DataPlane::ptr dataplane);
 
@@ -42,8 +44,14 @@ class RdmaControlPlane: public ControlPlane {
   static inline const std::string migrate_in_progress_cas_name_ =
     "MIGRATE_IN_PROGRESS_CAS";
 
+
+  const std::string self_name_;
+  const std::vector<std::string> cluster_nodes_;
   slope::keyvalue::KeyValueService::ptr keyvalue_service_;
   slope::dataplane::DataPlane::ptr dataplane_;
+
+  // order is important
+  // std::vector<std::shared_ptr<
 };
 
 }  // namespace control
