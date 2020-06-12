@@ -17,7 +17,7 @@ namespace control {
 
 class RdmaControlPlane: public ControlPlane {
  public:
-  using ptr = std::shared_ptr<RdmaControlPlane>;
+  using ptr = std::unique_ptr<RdmaControlPlane>;
   virtual bool do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>&) final override;
 

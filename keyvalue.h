@@ -15,7 +15,7 @@ class KeyValueService {
   virtual bool get(const std::string& key, std::string& ret) = 0;
   virtual bool wait_for(const std::string& key, std::string& ret) = 0;
 
-  using ptr = std::shared_ptr<KeyValueService>;
+  using ptr = std::unique_ptr<KeyValueService>;
 };
 
 class KeyValuePrefixMiddleware: public KeyValueService {
@@ -28,7 +28,7 @@ class KeyValuePrefixMiddleware: public KeyValueService {
   virtual bool set(const std::string& key, const std::string& val) final override;
   virtual bool get(const std::string& key, std::string& ret) final override;
   virtual bool wait_for(const std::string& key, std::string& ret) final override;
-  using ptr = std::shared_ptr<KeyValueService>;
+  using ptr = std::unique_ptr<KeyValueService>;
  private:
   std::unique_ptr<KeyValueService> impl_;
   const std::string prefix_;

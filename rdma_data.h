@@ -5,7 +5,7 @@
 
 class RdmaDataPlane {
  public:
-  using ptr = std::shared_ptr<RdmaDataPlane>;
+  using ptr = std::unique_ptr<RdmaDataPlane>;
 
   void initialie() {
 

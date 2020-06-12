@@ -114,7 +114,7 @@ void do_snk(slope::discovery::DiscoverySerivce& d,
 }
 
 void do_common(slope::discovery::DiscoverySerivce& d,
-    slope::control::ControlPlane::ptr control_plane,
+    slope::control::ControlPlane::ptr& control_plane,
     const char *node_id) {
   do_common(d, control_plane, node_id);
 }
@@ -123,8 +123,8 @@ void testdrive_migrate(slope::discovery::DiscoverySerivce& d,
     slope::control::ControlPlane::ptr control_plane,
     const char *node_id) {
   if(std::string(node_id).find("0") != std::string::npos) {
-    do_src(d, control_plane, node_id);
+    do_src(d, std::move(control_plane), node_id);
   } else {
-    do_snk(d, control_plane, node_id);
+    do_snk(d, std::move(control_plane), node_id);
   }
 }

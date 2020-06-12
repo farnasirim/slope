@@ -21,7 +21,7 @@ void do_snk(slope::discovery::DiscoverySerivce& d,
     const char *node_id);
 
 void do_common(slope::discovery::DiscoverySerivce& d,
-    slope::control::ControlPlane::ptr control_plane,
+    slope::control::ControlPlane::ptr& control_plane,
     const char *node_id);
 
 

@@ -21,7 +21,7 @@ class Memcached: public KeyValueService {
   virtual bool set(const std::string& key, const std::string& val) final override;
   virtual bool get(const std::string& key, std::string& ret) final override;
   virtual bool wait_for(const std::string& key, std::string& ret) final override;
-  using ptr = std::shared_ptr<Memcached>;
+  using ptr = std::unique_ptr<Memcached>;
  private:
 
   std::unique_ptr<memcached_st, std::function<void(memcached_st*)>> memc_;

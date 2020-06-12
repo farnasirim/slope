@@ -14,10 +14,8 @@ RdmaControlPlane::RdmaControlPlane(std::string self_name,
       slope::dataplane::DataPlane::ptr dataplane):
   self_name_(std::move(self_name)),
   cluster_nodes_(std::move(cluster_nodes)),
-  keyvalue_service_(std::make_shared<slope::keyvalue::KeyValuePrefixMiddleware>(
-        keyvalue_service,
-        kv_prefix) ),
-  dataplane_(dataplane) {
+  // keyvalue_service_(std::move(keyvalue_service), kv_prefix),
+  dataplane_(std::move(dataplane)) {
 
 }
 

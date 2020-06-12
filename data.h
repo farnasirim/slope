@@ -8,7 +8,7 @@ namespace dataplane {
 
 class DataPlane {
  public:
-  using ptr = std::shared_ptr<DataPlane>;
+  using ptr = std::unique_ptr<DataPlane>;
 };
 
 }  // namespace dataplane

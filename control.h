@@ -11,7 +11,7 @@ namespace control {
 
 class ControlPlane {
  public:
-  using ptr = std::shared_ptr<ControlPlane>;
+  using ptr = std::unique_ptr<ControlPlane>;
 
   virtual bool do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>&) = 0;
