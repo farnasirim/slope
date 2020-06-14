@@ -18,6 +18,11 @@ namespace slope {
 namespace control {
 
 using json = nlohmann::json;
+extern "C" {
+struct NodeInfo {
+  std::string node_id;
+};
+}
 
 class RdmaControlPlane: public ControlPlane {
  public:
@@ -37,12 +42,6 @@ class RdmaControlPlane: public ControlPlane {
   bool init_kvservice();
 
   void attach_dataplane(slope::data::DataPlane::ptr );
-
-  struct NodeInfo {
-    NodeInfo(const std::string& _node_id);
-    NodeInfo() = default;
-    std::string node_id;
-  };
 
  private:
   void init_cluster();
@@ -68,8 +67,9 @@ class RdmaControlPlane: public ControlPlane {
   // std::vector<std::shared_ptr<
 };
 
-void to_json(json& j, const RdmaControlPlane::NodeInfo& inf);
-void from_json(const json& j, RdmaControlPlane::NodeInfo& inf);
+
+void to_json(json& j, const NodeInfo& inf);
+void from_json(const json& j, NodeInfo& inf);
 
 }  // namespace control
 }  // namespace slope

@@ -13,16 +13,11 @@ namespace control {
 
 using json = nlohmann::json;
 
-RdmaControlPlane::NodeInfo::NodeInfo(const std::string& _node_id):
-  node_id(_node_id) {
-
-}
-
 RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       const std::vector<std::string>& cluster_nodes,
       slope::keyvalue::KeyValueService::ptr keyvalue_service):
   self_name_(self_name),
-  cluster_nodes_(std::move(cluster_nodes)),
+  cluster_nodes_(cluster_nodes),
   keyvalue_service_(std::move(keyvalue_service)),
   dataplane_(nullptr) {
 
@@ -31,16 +26,14 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       init_cluster();
     }
 
-    json my_info;
-    my_info["node_id"] = self_name_;
-    deb("setting:");
-    deb(self_name);
-    keyvalue_service_->set(self_name_, my_info.dump());
+    NodeInfo my_info;
+    my_info.node_id = self_name_;
+    keyvalue_service_->set(self_name_, json(my_info).dump());
     for(auto peer: cluster_nodes_) {
       std::string peer_info;
       auto peer_result = keyvalue_service_->wait_for(peer, peer_info);
       assert(peer_result);
-      cluster_info_[peer] = json::parse(peer_info).get<RdmaControlPlane::NodeInfo>();
+      cluster_info_[peer] = json::parse(peer_info).get<NodeInfo>();
     }
 }
 
@@ -59,6 +52,7 @@ bool RdmaControlPlane::do_migrate(const std::string& dest,
 
   start_migrate_ping_pong(dest, chunks);
   // Later TODO: prefill
+  // Laterer TODO: make sure prefill is pluggable
 
   for(auto& chunk: chunks) {
     auto mprotect_result = mprotect(
@@ -68,6 +62,8 @@ bool RdmaControlPlane::do_migrate(const std::string& dest,
   }
 
   transfer_ownership_ping_pong(dest, chunks);
+  // TODO: at this point we can also call back to the client to let them know
+  // that the migration is done, before waiting for the lengthy CAS.
 
   // TODO: broadcast ownership changes
 
@@ -97,13 +93,13 @@ bool RdmaControlPlane::init_kvservice() {
       "0");
 }
 
-void to_json(json& j, const RdmaControlPlane::NodeInfo& inf) {
+void to_json(json& j, const NodeInfo& inf) {
   j = json{
     {"node_id", inf.node_id}
   };
 }
 
-void from_json(const json& j, RdmaControlPlane::NodeInfo& inf) {
+void from_json(const json& j, NodeInfo& inf) {
   j.at("node_id").get_to(inf.node_id);
 }
 
