@@ -11,6 +11,8 @@ for ln in lines:
         contents.append(now)
         now = ""
         now += ln
+    else:
+        now += ln
 
 if now != "":
     contents.append(now)
