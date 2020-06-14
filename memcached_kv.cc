@@ -3,40 +3,13 @@
 #include <string>
 #include <cstring>
 
-#include <memcached.h>
+#include <libmemcached/memcached.h>
+#include "memcached.h"
+
+#include "debug.h"
 
 namespace slope {
 namespace keyvalue {
-
-/*
- *
-void Memcached::register_node(const std::string& my_id, const std::string& info) {
-  auto key = prefixize_node_name(my_id);
-
-  assert(ret == MEMCACHED_SUCCESS);
-}
-
-std::string Memcached::prefixize_node_name(const std::string& name) {
-  return prefix_ + name;
-}
-
-std::string Memcached::wait_for(const std::string& other_id) {
-  auto other_key = prefixize_node_name(other_id);
-  while(true) {
-    size_t value_length;
-    memcached_return_t ret;
-    char *result = memcached_get(memc, other_key.c_str(), std::strlen(other_key.c_str()),
-                                 &value_length, 0, &ret);
-    if(result != NULL) {
-      assert(ret == MEMCACHED_SUCCESS);
-      auto to_return = std::string(result);
-      free(result);
-      return to_return;
-    }
-  }
-  assert(false);
-}
- */
 
 Memcached::Memcached(std::string memc_confstr):
   memc_(memcached(memc_confstr.c_str(), strlen(memc_confstr.c_str())), memcached_free) {
@@ -44,7 +17,27 @@ Memcached::Memcached(std::string memc_confstr):
 
 bool Memcached::compare_and_swap(const std::string& key,
     const std::string& oldv, const std::string& newv)  {
-  return true;
+
+  const char *keys[1] = {key.c_str()};
+  size_t sizes[1] = {std::strlen(key.c_str())};
+
+  auto mget_ret = memcached_mget(memc_.get(), keys, sizes, 1);
+  assert(mget_ret == MEMCACHED_SUCCESS);
+  memcached_result_st res;
+  memcached_return_t err;
+  memcached_fetch_result(memc_.get(), &res, &err);
+  auto val = memcached_result_value(&res);
+  auto cas = memcached_result_cas(&res);
+  assert(NULL == memcached_fetch_result(memc_.get(), NULL, &err));
+  assert(err == MEMCACHED_END);
+
+  if(!strcmp(val, oldv.c_str())) {
+
+    auto ret = memcached_cas(memc_.get(), key.c_str(), std::strlen(key.c_str()),
+        newv.c_str(), std::strlen(newv.c_str()), static_cast<time_t>(0),
+        static_cast<uint32_t>(0), cas);
+  }
+  return false;
 }
 
 bool Memcached::set(const std::string& key, const std::string& val) {

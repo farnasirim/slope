@@ -3,6 +3,9 @@
 
 #include <memory>
 
+namespace slope {
+namespace data {
+
 class RdmaDataPlane {
  public:
   using ptr = std::unique_ptr<RdmaDataPlane>;
@@ -11,6 +14,9 @@ class RdmaDataPlane {
 
   }
 };
+
+}  // namespace data
+}  // namespace slope
 
 #endif // SLOPE_RDMA_DATA_H_
 

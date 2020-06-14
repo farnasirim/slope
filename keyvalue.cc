@@ -16,7 +16,7 @@ bool KeyValuePrefixMiddleware::compare_and_swap(const std::string& key,
 }
 
 bool KeyValuePrefixMiddleware::set(const std::string& key, const std::string& val) {
-  return impl_->compare_and_swap(prefix_ + key, key, val);
+  return impl_->set(prefix_ + key, val);
 }
 
 

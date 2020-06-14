@@ -4,7 +4,7 @@
 #include <memory>
 
 namespace slope {
-namespace dataplane {
+namespace data {
 
 class DataPlane {
  public:

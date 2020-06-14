@@ -12,8 +12,12 @@
 
 #include "allocator.h"
 
+#include "json.hpp"
+
 namespace slope {
 namespace control {
+
+using json = nlohmann::json;
 
 class RdmaControlPlane: public ControlPlane {
  public:
@@ -26,15 +30,25 @@ class RdmaControlPlane: public ControlPlane {
     return do_migrate(dest, p->get_pages());
   }
 
-  RdmaControlPlane(std::string self_name,
-      std::vector<std::string> cluster_nodes,
-      std::string kv_prefix,
-      slope::keyvalue::KeyValueService::ptr keyvalue_service,
-      slope::dataplane::DataPlane::ptr dataplane);
+  RdmaControlPlane(const std::string& self_name,
+      const std::vector<std::string>& cluster_nodes,
+      slope::keyvalue::KeyValueService::ptr keyvalue_service);
 
   bool init_kvservice();
 
+  void attach_dataplane(slope::data::DataPlane::ptr );
+
+  struct NodeInfo {
+    NodeInfo(const std::string& _node_id);
+    NodeInfo() = default;
+    std::string node_id;
+  };
+
  private:
+  void init_cluster();
+
+  std::map<std::string, NodeInfo> cluster_info_;
+
   void start_migrate_ping_pong(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>& chunks);
 
@@ -48,11 +62,14 @@ class RdmaControlPlane: public ControlPlane {
   const std::string self_name_;
   const std::vector<std::string> cluster_nodes_;
   slope::keyvalue::KeyValueService::ptr keyvalue_service_;
-  slope::dataplane::DataPlane::ptr dataplane_;
+  slope::data::DataPlane::ptr dataplane_;
 
   // order is important
   // std::vector<std::shared_ptr<
 };
+
+void to_json(json& j, const RdmaControlPlane::NodeInfo& inf);
+void from_json(const json& j, RdmaControlPlane::NodeInfo& inf);
 
 }  // namespace control
 }  // namespace slope

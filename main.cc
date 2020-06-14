@@ -77,10 +77,14 @@ int main(int argc, char **argv) {
   auto kv = std::make_unique<slope::keyvalue::Memcached>(argv[2]);
   auto slope_kv = std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
       std::move(kv), "SLOPE_");
-  // slope::control::RdmaControlPlane controlplane();
 
+  deb(peers);
+  auto ptr = std::make_unique<slope::control::RdmaControlPlane> (
+      self_id, peers, std::move(slope_kv));
+
+  return 0;
   slope::discovery::Memcached m("SLOPE_DISCOVERY_", argv[2], peers);
-  testdrive_migrate(m, nullptr, self_id);
+  testdrive_migrate(m, std::move(ptr), self_id);
 
 
   return 0;
