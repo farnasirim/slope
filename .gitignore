@@ -9,3 +9,4 @@ doc/*.pdf
 doc/*.toc
 cscope*
 tags
+.gdb_history
