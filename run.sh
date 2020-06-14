@@ -12,4 +12,10 @@ fi
 
 export peers="--peer=0 --peer=1"
 
-sleep 1 && ./slope $ID --SERVER=$memcached_address $peers
+sleep 1
+
+if [[ x$DEBUG == x ]] ; then
+    ./slope $ID --SERVER=$memcached_address $peers
+else
+    .gdb --args ./slope $ID --SERVER=$memcached_address $peers
+fi
