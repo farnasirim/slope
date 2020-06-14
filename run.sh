@@ -17,5 +17,5 @@ sleep 1
 if [[ x$DEBUG == x ]] ; then
     ./slope $ID --SERVER=$memcached_address $peers
 else
-    .gdb --args ./slope $ID --SERVER=$memcached_address $peers
+    gdb --args ./slope $ID --SERVER=$memcached_address $peers
 fi
