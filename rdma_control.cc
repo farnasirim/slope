@@ -45,8 +45,7 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
 }
 
 void RdmaControlPlane::init_cluster() {
-  auto ret = keyvalue_service_->set(migrate_in_progress_cas_name_, "0");
-  assert(ret);
+  assert(keyvalue_service_->set(migrate_in_progress_cas_name_, "0"));
 }
 
 bool RdmaControlPlane::do_migrate(const std::string& dest,

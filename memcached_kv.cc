@@ -13,6 +13,12 @@ namespace keyvalue {
 
 Memcached::Memcached(std::string memc_confstr):
   memc_(memcached(memc_confstr.c_str(), strlen(memc_confstr.c_str())), memcached_free) {
+  assert(
+      memcached_behavior_set(
+        memc_.get(),
+        MEMCACHED_BEHAVIOR_SUPPORT_CAS,
+        true) == MEMCACHED_SUCCESS
+      );
 }
 
 bool Memcached::compare_and_swap(const std::string& key,
@@ -23,21 +29,25 @@ bool Memcached::compare_and_swap(const std::string& key,
 
   auto mget_ret = memcached_mget(memc_.get(), keys, sizes, 1);
   assert(mget_ret == MEMCACHED_SUCCESS);
-  memcached_result_st res;
+
+  memcached_result_st *res = memcached_result_create(memc_.get(), NULL);
+  assert(res != NULL);
+
   memcached_return_t err;
-  memcached_fetch_result(memc_.get(), &res, &err);
-  auto val = memcached_result_value(&res);
-  auto cas = memcached_result_cas(&res);
+  memcached_fetch_result(memc_.get(), res, &err);
+  auto val = memcached_result_value(res);
+  auto cas = memcached_result_cas(res);
   assert(NULL == memcached_fetch_result(memc_.get(), NULL, &err));
-  assert(err == MEMCACHED_END);
 
+  bool ret = false;
   if(!strcmp(val, oldv.c_str())) {
-
-    auto ret = memcached_cas(memc_.get(), key.c_str(), std::strlen(key.c_str()),
+    auto memc_ret = memcached_cas(memc_.get(), key.c_str(), std::strlen(key.c_str()),
         newv.c_str(), std::strlen(newv.c_str()), static_cast<time_t>(0),
         static_cast<uint32_t>(0), cas);
+    ret = memc_ret == MEMCACHED_SUCCESS;
   }
-  return false;
+  memcached_result_free(res);
+  return ret;
 }
 
 bool Memcached::set(const std::string& key, const std::string& val) {
