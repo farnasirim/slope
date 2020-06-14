@@ -75,4 +75,7 @@ using IbvCreateQp = IbResource<
   decltype(&ibv_destroy_qp), &ibv_destroy_qp
   >;
 
+// TODO: add IbInit: e.g:
+// using IbvQueryPort = IbInit<...,port_attr>
+
 #endif  // IB_H_
