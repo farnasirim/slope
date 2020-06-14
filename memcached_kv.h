@@ -4,7 +4,7 @@
 #include <memory>
 #include <functional>
 
-#include <memcached.h>
+#include <libmemcached/memcached.h>
 
 #include "keyvalue.h"
 

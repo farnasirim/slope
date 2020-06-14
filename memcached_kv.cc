@@ -2,9 +2,9 @@
 
 #include <string>
 #include <cstring>
+#include <cassert>
 
 #include <libmemcached/memcached.h>
-#include "memcached.h"
 
 #include "debug.h"
 

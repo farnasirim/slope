@@ -14,7 +14,6 @@
 
 #include <libmemcached/memcached.h>
 
-#include "memcached.h"
 #include "ib.h"
 #include "ib_container.h"
 #include "logging.h"
@@ -81,11 +80,6 @@ int main(int argc, char **argv) {
   deb(peers);
   auto ptr = std::make_unique<slope::control::RdmaControlPlane> (
       self_id, peers, std::move(slope_kv));
-
-  return 0;
-  slope::discovery::Memcached m("SLOPE_DISCOVERY_", argv[2], peers);
-  testdrive_migrate(m, std::move(ptr), self_id);
-
 
   return 0;
 
