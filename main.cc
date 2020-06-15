@@ -20,6 +20,7 @@
 #include "modify_qp.h"
 #include "slope.h"
 #include "allocator.h"
+#include "discovery.h"
 
 #include "rdma_control.h"
 #include "memcached_kv.h"
