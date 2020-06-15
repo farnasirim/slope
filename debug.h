@@ -46,6 +46,13 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T, Alloc>& v) {
   return os;
 }
 
+#define assert_p(cond, msg) do { \
+  if(!(cond)) { \
+    perror(msg); \
+    std::abort(); \
+  } \
+} while(false);
+
 #else
 #  define deb(x) do { } while(0);
 #  define debout(x) do { } while(0);

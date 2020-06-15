@@ -68,9 +68,9 @@ int main(int argc, char **argv) {
   auto node_index = static_cast<size_t>(find(peers.begin(), peers.end(), self_id) - peers.begin());
   auto num_pages_for_each_node = SLOPE_NUM_PAGES/peers.size();
   auto start_page_for_current_node = num_pages_for_each_node * node_index;
-  deb(sizeof(node_index));
-  deb(sizeof(start_page_for_current_node));
-  deb(sizeof(num_pages_for_each_node));
+  // deb(sizeof(node_index));
+  // deb(sizeof(start_page_for_current_node));
+  // deb(sizeof(num_pages_for_each_node));
   slope::alloc::current_mem += start_page_for_current_node * slope::alloc::page_size;
 
   auto kv = std::make_unique<slope::keyvalue::Memcached>(argv[2]);
@@ -80,6 +80,8 @@ int main(int argc, char **argv) {
   deb(peers);
   auto ptr = std::make_unique<slope::control::RdmaControlPlane> (
       self_id, peers, std::move(slope_kv));
+
+
 
   return 0;
 

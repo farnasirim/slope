@@ -22,16 +22,30 @@ namespace slope {
 namespace control {
 
 using json = nlohmann::json;
-extern "C" {
-struct NodeInfo {
-  std::string node_id;
+
+struct QpInfo {
+  QpInfo() = default;
+  QpInfo(short unsigned int host_port_lid,
+      unsigned int host_qp_num,
+      const std::string& remote_end_node_id);
+  short unsigned int host_port_lid;
+  unsigned int host_qp_num;
+  std::string remote_end_node_id;
 };
+
+struct NodeInfo {
+  NodeInfo() = default;
+  NodeInfo(std::string node_id, const std::vector<QpInfo>& qps);
+  std::string node_id;
+  std::vector<QpInfo> do_migrate_qps;
+};
+
+extern "C" {
 
 struct DoMigrateRequest {
 
 };
 }
-
 
 class RdmaControlPlane: public ControlPlane {
 
@@ -67,6 +81,8 @@ class RdmaControlPlane: public ControlPlane {
   static inline const std::string migrate_in_progress_cas_name_ =
     "MIGRATE_IN_PROGRESS_CAS";
 
+  std::string peer_done_key(const std::string&);
+
   // ************ order is important here *********************
   static inline const std::string ib_device_name_ = "mlx5_1";
   const std::string self_name_;
@@ -79,6 +95,7 @@ class RdmaControlPlane: public ControlPlane {
   IbvDeviceContextByName ib_context_;
   int dev_attrs_result_;
   ibv_device_attr dev_attrs;
+  static inline const uint16_t operating_pkey_ = 0;
   int query_port_result_;
   static inline const uint8_t operating_port_num_ = 1;
   struct ibv_port_attr operating_port_attr_;
@@ -95,8 +112,10 @@ class RdmaControlPlane: public ControlPlane {
 };
 
 
-void to_json(json& j, const NodeInfo& inf);
-void from_json(const json& j, NodeInfo& inf);
+void to_json(json& j, const NodeInfo& inf) noexcept;
+void from_json(const json& j, NodeInfo& inf) noexcept;
+void to_json(json& j, const QpInfo& inf) noexcept;
+void from_json(const json& j, QpInfo& inf) noexcept;
 
 }  // namespace control
 }  // namespace slope
