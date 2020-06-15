@@ -307,47 +307,6 @@ void RdmaControlPlane::simple_send() {
   ibv_device_attr dev_attrs = {};
   {
     int ret = ibv_query_device(ib_context.get(), &dev_attrs);
-    // deb(static_cast<int>(dev_attrs.phys_port_cnt));
-    // deb(dev_attrs.fw_ver[64]);
-    // deb(dev_attrs.node_guid);
-    // deb(dev_attrs.sys_image_guid);
-    // deb(dev_attrs.max_mr_size);
-    // deb(dev_attrs.page_size_cap);
-    // deb(dev_attrs.vendor_id);
-    // deb(dev_attrs.vendor_part_id);
-    // deb(dev_attrs.hw_ver);
-    // deb(dev_attrs.max_qp);
-    // deb(dev_attrs.max_qp_wr);
-    // deb(dev_attrs.device_cap_flags);
-    // deb(dev_attrs.max_sge);
-    // deb(dev_attrs.max_sge_rd);
-    // deb(dev_attrs.max_cq);
-    // deb(dev_attrs.max_cqe);
-    // deb(dev_attrs.max_mr);
-    // deb(dev_attrs.max_pd);
-    // deb(dev_attrs.max_qp_rd_atom);
-    // deb(dev_attrs.max_ee_rd_atom);
-    // deb(dev_attrs.max_res_rd_atom);
-    // deb(dev_attrs.max_qp_init_rd_atom);
-    // deb(dev_attrs.max_ee_init_rd_atom);
-    // deb(static_cast<int>(dev_attrs.atomic_cap));
-    // deb(dev_attrs.max_ee);
-    // deb(dev_attrs.max_rdd);
-    // deb(dev_attrs.max_mw);
-    // deb(dev_attrs.max_raw_ipv6_qp);
-    // deb(dev_attrs.max_raw_ethy_qp);
-    // deb(dev_attrs.max_mcast_grp);
-    // deb(dev_attrs.max_mcast_qp_attach);
-    // deb(dev_attrs.max_total_mcast_qp_attach);
-    // deb(dev_attrs.max_ah);
-    // deb(dev_attrs.max_fmr);
-    // deb(dev_attrs.max_map_per_fmr);
-    // deb(dev_attrs.max_srq);
-    // deb(dev_attrs.max_srq_wr);
-    // deb(dev_attrs.max_srq_sge);
-    // deb(dev_attrs.max_pkeys);
-    // deb(dev_attrs.local_ca_ack_delay);
-    // deb(dev_attrs.phys_port_cnt);
     assert(!ret);
   }
 
@@ -470,55 +429,6 @@ void RdmaControlPlane::simple_send() {
     }
     std::cout << "signaled" << std::endl;
 
-    // size_t current_posted = 0;
-    // char *last_addr = payload;
-    // {
-    // int ret = ibv_poll_cq(cq, num_concurr, completions);
-    // deb(ret);
-    // }
-    // deb(num_messages_to_request);
-    // int done = 0;
-    // //num_messages_to_request --;
-    // while(num_messages_to_request) {
-    //   // std::cout << "here" << std::endl;
-    //   int ret = ibv_poll_cq(cq, num_concurr, completions);
-    //   if(ret > 0) {
-    //     std::cout << "poll suc" << std::endl;
-    //     for(int i = 0; i < ret; i++) {
-    //       assert_p(completions[i].status == 0, "ibv_poll_cq");
-    //     }
-    //   }
-    //   assert_p(ret >= 0, "ret < 0 incorrectly");
-    //   num_messages_to_request -= static_cast<size_t>(ret);
-    //   current_posted -= static_cast<size_t>(ret);
-    //   done += ret;
-    //   while (current_posted < num_concurr && num_messages_to_request > current_posted) {
-    //     current_posted += 1;
-    //     struct ibv_sge sge = {};
-    //     sge.lkey = mr->lkey;
-    //     sge.addr = reinterpret_cast<uint64_t>(last_addr);
-    //     sge.length = msg_size_to_req;
-
-    //     last_addr += msg_size_to_req;
-
-    //     struct ibv_recv_wr *bad_wr;
-    //     struct ibv_recv_wr this_wr = {};
-    //     this_wr.wr_id = 1212;
-    //     this_wr.num_sge = 1;
-    //     this_wr.sg_list = &sge;
-
-    //     int ret_post_recv = ibv_post_recv(qp, &this_wr, &bad_wr);
-    //     assert_p(ret_post_recv == 0, "ibv_post_recv");
-    //   }
-    // }
-    // deb(done);
-
-
-    // for(long long i = 0; i < static_cast<long long>(to_alloc); i++) {
-    //   std::cout << static_cast<int>(mem[i]) << " ";
-    // }
-    // std::cout << std::endl;
-
 }
 
 void RdmaControlPlane::to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
@@ -602,47 +512,6 @@ void RdmaControlPlane::simple_recv() {
   ibv_device_attr dev_attrs = {};
   {
     int ret = ibv_query_device(ib_context.get(), &dev_attrs);
-    // deb(static_cast<int>(dev_attrs.phys_port_cnt));
-    // deb(dev_attrs.fw_ver[64]);
-    // deb(dev_attrs.node_guid);
-    // deb(dev_attrs.sys_image_guid);
-    // deb(dev_attrs.max_mr_size);
-    // deb(dev_attrs.page_size_cap);
-    // deb(dev_attrs.vendor_id);
-    // deb(dev_attrs.vendor_part_id);
-    // deb(dev_attrs.hw_ver);
-    // deb(dev_attrs.max_qp);
-    // deb(dev_attrs.max_qp_wr);
-    // deb(dev_attrs.device_cap_flags);
-    // deb(dev_attrs.max_sge);
-    // deb(dev_attrs.max_sge_rd);
-    // deb(dev_attrs.max_cq);
-    // deb(dev_attrs.max_cqe);
-    // deb(dev_attrs.max_mr);
-    // deb(dev_attrs.max_pd);
-    // deb(dev_attrs.max_qp_rd_atom);
-    // deb(dev_attrs.max_ee_rd_atom);
-    // deb(dev_attrs.max_res_rd_atom);
-    // deb(dev_attrs.max_qp_init_rd_atom);
-    // deb(dev_attrs.max_ee_init_rd_atom);
-    // deb(static_cast<int>(dev_attrs.atomic_cap));
-    // deb(dev_attrs.max_ee);
-    // deb(dev_attrs.max_rdd);
-    // deb(dev_attrs.max_mw);
-    // deb(dev_attrs.max_raw_ipv6_qp);
-    // deb(dev_attrs.max_raw_ethy_qp);
-    // deb(dev_attrs.max_mcast_grp);
-    // deb(dev_attrs.max_mcast_qp_attach);
-    // deb(dev_attrs.max_total_mcast_qp_attach);
-    // deb(dev_attrs.max_ah);
-    // deb(dev_attrs.max_fmr);
-    // deb(dev_attrs.max_map_per_fmr);
-    // deb(dev_attrs.max_srq);
-    // deb(dev_attrs.max_srq_wr);
-    // deb(dev_attrs.max_srq_sge);
-    // deb(dev_attrs.max_pkeys);
-    // deb(dev_attrs.local_ca_ack_delay);
-    // deb(dev_attrs.phys_port_cnt);
     assert(!ret);
   }
 
@@ -756,66 +625,6 @@ void RdmaControlPlane::simple_recv() {
   deb(amount_data_bytes_to_req/static_cast<size_t>(*p));
   auto last_addr = payload;
 
-  // deb(last_addr - reinterpret_cast<char *>(p));
-
-  // size_t nums = amount_data_bytes_to_req/static_cast<size_t>(*p);
-  // //nums --;
-  // size_t i;
-
-  // for(long long j = 10; j < static_cast<long long>(to_alloc); j++) {
-  //   mem[j] = j % 256;
-  // }
-  // d::this_thread::sleep_for(std::chrono::milliseconds(100));
-  // for(i = 0; i < nums; i++) {
-
-  //   struct ibv_sge final_sge = {};
-  //   final_sge.lkey = mr->lkey;
-  //   final_sge.addr = reinterpret_cast<uint64_t>(last_addr);
-  //   // deb(final_sge.addr);
-  //   // deb(reinterpret_cast<uint64_t>(mem));
-  //   // deb(reinterpret_cast<uint64_t>((char *) mem + amount_data_bytes_to_req + 10) - final_sge.addr);
-  //   last_addr += *p;
-  //   deb(*p);
-  //   deb(static_cast<long long>(*(p)) - 1);
-  //   final_sge.length = static_cast<uint32_t>(*p);
-  //   // deb(*p);
-  //   //
-  //   /*
-  //   // */
-
-  //   struct ibv_send_wr *final_bad_wr;
-  //   struct ibv_send_wr other_wr = {};
-  //   other_wr.wr_id = 1212;
-  //   other_wr.num_sge = 1;
-  //   other_wr.sg_list = &final_sge;
-  //   other_wr.opcode = IBV_WR_SEND_WITH_IMM;
-  //   other_wr.send_flags = IBV_SEND_SIGNALED;
-  //   other_wr.imm_data = htonl(912999);
-
-  //   int ret_post_send_final = ibv_post_send(qp, &other_wr, &final_bad_wr);
-  //   struct ibv_wc comp;
-  //   int r;
-  //   while((r = ibv_poll_cq(cq, 1, &comp)) == 0) {  }
-  //   assert_p(r > 0, "poll");
-
-  //   assert_p(ret_post_send_final == 0, "send");
-  // }
-  // deb(i);
-  // for(long long j = 0; j < static_cast<long long>(to_alloc); j++) {
-  //   std::cout << static_cast<int>(mem[j]) << " ";
-  // }
-  // std::cout << std::endl;
-
-  // auto x = std::chrono::system_clock::now() - then;
-  // auto mics = std::chrono::nanoseconds(x).count()/1000.0;
-  // auto dpus = amount_data_bytes_to_req/mics;
-  // auto mpus = (amount_data_bytes_to_req / static_cast<size_t>(*p)) / mics;
-
-  // deb(mics/1e6);
-  // deb(dpus);
-  // deb(mpus);
-
-  // std::this_thread::sleep_for(std::chrono::seconds(1));
 }
 
 
