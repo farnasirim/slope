@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <arpa/inet.h>
 
 #include "control.h"
 #include "keyvalue.h"
@@ -56,13 +57,12 @@ class RdmaControlPlane: public ControlPlane {
 
  public:
   const std::string self_name_;
-  const std::vector<std::string> cluster_nodes_;
+  size_t self_index_;
+  std::vector<std::string> cluster_nodes_;
 
   using ptr = std::unique_ptr<RdmaControlPlane>;
   virtual bool do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>&) final override;
-
-  bool poll_migrate();
 
   template<typename T>
   bool do_migrate(const std::string& dest, const mig_ptr<T>& p) {
@@ -72,6 +72,95 @@ class RdmaControlPlane: public ControlPlane {
   RdmaControlPlane(const std::string& self_name,
       const std::vector<std::string>& cluster_nodes,
       slope::keyvalue::KeyValueService::ptr keyvalue_service);
+
+  template<typename T>
+  mig_ptr<T> poll_migrate() {
+    // TODO: repost the recvs
+    std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
+
+    struct ibv_wc completions[1];
+    int ret_poll_cq = ibv_poll_cq(do_migrate_cq_, 1, completions);
+    assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "poll_migrate: ibv_poll_cq");
+    if(ret_poll_cq == 0) {
+      return mig_ptr<T>::adopt(nullptr);
+    }
+
+    deb(do_migrate_req_.number_of_chunks);
+    size_t peer_index = ntohl(completions[0].imm_data);
+    deb(peer_index);
+    ibv_qp *peer_qp = do_migrate_qps_[cluster_nodes_[peer_index]].get()->get();
+    DoMigrateChunk *chunks_info = new DoMigrateChunk[do_migrate_req_.number_of_chunks];
+    auto chunks_info_sz = do_migrate_req_.number_of_chunks * sizeof(DoMigrateChunk);
+
+    {
+      IbvRegMr mr(global_pd_.get(), chunks_info,
+          sizeof(DoMigrateRequest) * do_migrate_req_.number_of_chunks,
+          do_migrate_mr_flags_);
+
+      struct ibv_qp_init_attr qp_init_attr = {};
+      qp_init_attr.send_cq = do_migrate_cq_.get();
+      qp_init_attr.recv_cq = do_migrate_cq_.get();
+      // qp_init_attr.cap.max_send_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr;
+      qp_init_attr.cap.max_send_wr = 1;
+      // qp_init_attr.cap.max_recv_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr);
+      qp_init_attr.cap.max_recv_wr = 1;
+      qp_init_attr.cap.max_send_sge = 1;
+      qp_init_attr.cap.max_recv_sge = 1;
+      // qp_init.cap.max_inline_data = 60;
+      qp_init_attr.qp_type = IBV_QPT_RC;
+    }
+
+    struct ibv_sge sge = {};
+    IbvRegMr mr(global_pd_.get(), chunks_info, chunks_info_sz, do_migrate_mr_flags_);
+    sge.lkey = mr->lkey;
+    sge.addr = reinterpret_cast<uint64_t>(chunks_info);
+    sge.length = chunks_info_sz;
+
+    struct ibv_recv_wr *bad_wr;
+    struct ibv_recv_wr this_wr = {};
+    this_wr.wr_id = do_migrate_wrid_;
+    this_wr.num_sge = 1;
+    this_wr.sg_list = &sge;
+
+    int ret = ibv_post_recv(peer_qp, &this_wr, &bad_wr);
+
+    assert_p(ret == 0, "ibv_post_recv");
+    assert(false);
+
+//   struct ibv_wc completions[1];
+//   while(true) {
+//     int ret_poll_cq = ibv_poll_cq(cq, 1, completions);
+//     deb(ret_poll_cq);
+//     assert_p(ret_poll_cq >= 0, "ibv_poll_cq");
+//     if(ret_poll_cq > 0) {
+//       assert_p(completions[0].status == 0, "ibv_poll_cq");
+//       then = std::chrono::system_clock::now();
+//       break;
+//     }
+//     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+//   }
+//   deb(*p);
+//   auto last_addr = payload;
+// 
+// 
+
+
+    // std::vector<slope::alloc::memory_chunk> chunks;
+    // for(size_t i = 0; i < do_migrate_req_.number_of_chunks; i++) {
+    //   deb(chunks_info[i].addr);
+    //   deb(chunks_info[i].sz);
+    //   chunks.emplace_back(chunks_info[i].addr, chunks_info[i].sz);
+    // }
+    // delete[] chunks_info;
+
+    // auto t_allocator = alloc::allocator_instance<T>();
+    // // HUUUUGE TODO: owner is not necessarily the first page
+    // auto raw = t_allocator.register_preowned(
+    //     *min_element(chunks.begin(), chunks.end()), chunks);
+
+    // return mig_ptr<T>::adopt(raw);
+//   }
+  }
 
   bool init_kvservice();
 
@@ -96,6 +185,7 @@ class RdmaControlPlane: public ControlPlane {
 
   static inline const std::string migrate_in_progress_cas_name_ =
     "MIGRATE_IN_PROGRESS_CAS";
+  static inline const uint64_t do_migrate_wrid_ = 0xd017;
 
   std::string peer_done_key(const std::string&);
 

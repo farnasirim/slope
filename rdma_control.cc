@@ -43,6 +43,12 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
   do_migrate_cq_(ib_context_.get(), dev_attrs_.max_cqe, static_cast<void *>(NULL),
                  static_cast<struct ibv_comp_channel *>(NULL), 0)
 {
+    std::sort(cluster_nodes_.begin(), cluster_nodes_.end());
+    self_index_ = static_cast<size_t>(
+          std::find(cluster_nodes_.begin(), cluster_nodes_.end(), self_name_) -
+          cluster_nodes_.begin()
+          );
+
     if(self_name_ ==
         *min_element(cluster_nodes_.cbegin(), cluster_nodes_.cend())) {
       init_cluster();
@@ -120,7 +126,7 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
 
         do_migrate_wr_ = ibv_recv_wr{};
         do_migrate_bad_wr_ = nullptr;
-        do_migrate_wr_.wr_id = 1212;
+        do_migrate_wr_.wr_id = do_migrate_wrid_;
         do_migrate_wr_.num_sge = 1;
         do_migrate_wr_.sg_list = &do_migrate_sge_;
         int ret_post_recv = ibv_post_recv(
@@ -141,17 +147,6 @@ void RdmaControlPlane::init_cluster() {
   assert(keyvalue_service_->set(migrate_in_progress_cas_name_, "0"));
 }
 
-bool RdmaControlPlane::poll_migrate() {
-  std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
-
-  struct ibv_wc completions[1];
-  int ret_poll_cq = ibv_poll_cq(do_migrate_cq_, 1, completions);
-  assert_p(ret_poll_cq >= 0, "poll_migrate: ibv_poll_cq");
-  deb(ret_poll_cq);
-
-  return ret_poll_cq == 1;
-}
-
 bool RdmaControlPlane::do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>& chunks) {
 
@@ -169,10 +164,11 @@ bool RdmaControlPlane::do_migrate(const std::string& dest,
   // Laterer TODO: make sure prefill is pluggable
 
   for(auto& chunk: chunks) {
+    deb(chunk);
     auto mprotect_result = mprotect(
         reinterpret_cast<void*>(chunk.first),
         chunk.second, PROT_READ);
-    assert(mprotect_result);
+    assert_p(mprotect_result == 0, "mprotect");
   }
 
   transfer_ownership_ping_pong(dest, chunks);
@@ -211,12 +207,12 @@ void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
 
     struct ibv_send_wr *bad_wr;
     struct ibv_send_wr this_wr = {};
-    this_wr.wr_id = 1212;
+    this_wr.wr_id = do_migrate_wrid_;
     this_wr.num_sge = 1;
     this_wr.sg_list = &sge;
     this_wr.opcode = IBV_WR_SEND_WITH_IMM;
     this_wr.send_flags = IBV_SEND_SIGNALED;
-    this_wr.imm_data = 123;
+    this_wr.imm_data = htonl(self_index_);
 
     int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
     deb(ret_post_send);
@@ -230,7 +226,13 @@ void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
       }
     }
   }
-  debout("done");
+  // DoMigrateChunk *chunks_info = new DoMigrateChunk[chunks.size()];
+  // size_t current_chunk = 0;
+  // for(auto& it: chunks) {
+  //   chunks_info[current_chunk].addr = it.first;
+  //   chunks_info[current_chunk].sz = it.second;
+  // }
+  // delete[] chunks_info;
 }
 
 void RdmaControlPlane::transfer_ownership_ping_pong(const std::string& dest,
