@@ -12,10 +12,15 @@
 #include <new>
 #include <limits>
 #include <iostream>
+#include <iomanip>
+#include <sstream>
 #include <unordered_map>
 #include <set>
 #include <memory>
 #include <vector>
+
+#include <boost/core/demangle.hpp>
+#include <typeinfo>
 
 #include "slope.h"
 #include "debug.h"
@@ -113,21 +118,22 @@ struct FixedPoolAllocator {
     return (n + page_size - 1) & ~(page_size - 1);
   }
 
+  size_t get_final_size(size_t n, size_t sz) {
+    return align_to_page(n * sz);
+  }
+
   [[nodiscard]]
   T* allocate(std::size_t n) {
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
       throw std::bad_alloc();
     }
-    n *= sizeof(T);
-    n = align_to_page(n);
-    deb(n);
-    deb(global_ownership_stack);
 
-    deb(reinterpret_cast<void *>(current_mem));
+    auto orig_count = n;
+
+    n = get_final_size(n, sizeof(T));
+
     auto start_addr = current_mem;
     current_mem += n;
-    deb(static_cast<void*>(current_mem));
-    debline();
 
 
     if(current_mem > mem + mem_size) {
@@ -144,12 +150,20 @@ struct FixedPoolAllocator {
       global_ownership_stack.back()->set_ptr(reinterpret_cast<uintptr_t>(ret));
     }
 
-    std::cout << std::hex << " : " << global_ownership_stack.back()->get_ptr() << std::endl;
-    std::cout << std::hex << " :: " << memory_chunk(reinterpret_cast<uintptr_t>(ret), n) << std::endl;
-    std::cout << std::endl;
     object_allocations[global_ownership_stack.back()->get_ptr()]
       .insert(memory_chunk(reinterpret_cast<uintptr_t>(ret), n));
     addr_to_owner[reinterpret_cast<uintptr_t>(ret)] = global_ownership_stack.back()->get_ptr();
+
+    {
+      std::stringstream deb_ss;
+      std::string name = boost::core::demangle(typeid(T).name());
+      deb_ss << "Alloc " << std::setw(4) << orig_count << " x " << std::setw(4)
+        << sizeof(T) << " = " << std::setw(8) << n
+        << std::showbase << std::internal << std::setfill('0')
+        << " @" << std::hex << std::setw(16) << ret;
+      deb_ss << " (" << name << ")";
+      infoout(deb_ss.str());
+    }
 
     return ret;
   }
@@ -158,8 +172,18 @@ struct FixedPoolAllocator {
     auto addr = reinterpret_cast<uintptr_t>(p);
     auto owner = addr_to_owner[addr];
     addr_to_owner.erase(owner);
-    object_allocations[owner].erase(std::make_pair(addr, sz));
-    std::cout << "dealloc: " << p << std::endl;
+    sz = get_final_size(sz, sizeof(T));
+    auto chunk = std::make_pair(addr, sz);
+    auto chunk_it = object_allocations[owner].find(chunk);
+    assert(chunk_it != object_allocations[owner].end());
+    object_allocations[owner].erase(chunk_it);
+
+    {
+      std::stringstream deb_ss;
+      deb_ss << std::showbase << std::internal << std::setfill('0')
+        << "Dealloc'd at: " << std::hex << std::setw(16) << p;
+      infoout(deb_ss.str());
+    }
   }
 };
 
