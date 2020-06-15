@@ -122,6 +122,44 @@ struct FixedPoolAllocator {
     return align_to_page(n * sz);
   }
 
+  T *register_preowned(const memory_chunk& owner,
+      const std::vector<memory_chunk>& chunks) {
+
+    T *ret = nullptr;
+    for(const auto& chunk: chunks) {
+      if(chunk == owner) {
+        // This is a great moment. We are reinterpreting a uintptr_t
+        // brought here from another machine, with no regard for human life.
+        assert(ret == nullptr);
+        ret = reinterpret_cast<T*>(chunk.first);
+      }
+      if(mprotect(reinterpret_cast<void*>(chunk.first), chunk.second, PROT_READ | PROT_WRITE)) {
+        perror("mprotect");
+        assert(false);
+      }
+
+      // don't need to touch global ownership stack
+      // We're not allocating anything _for_ this new chunk.
+
+      object_allocations[owner.first].insert(chunk);
+      addr_to_owner[chunk.first] = owner.first;
+
+      {
+        std::stringstream deb_ss;
+        std::string name = boost::core::demangle(typeid(T).name());
+        deb_ss << "Place " << chunk.first << " bytes"
+          << std::showbase << std::internal << std::setfill('0')
+           << " @" << std::hex << std::setw(16) << chunk.second;
+        deb_ss << " (" << name << ")";
+        infoout(deb_ss.str());
+      }
+
+      return ret;
+    }
+    assert(ret != nullptr);
+    return ret;
+  }
+
   [[nodiscard]]
   T* allocate(std::size_t n) {
     if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {

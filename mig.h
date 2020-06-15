@@ -11,7 +11,14 @@ namespace slope {
 // No way we know how to pass TrackedAlloc to T
 template<typename T>
 class mig_ptr {
+ private:
+  mig_ptr(T *p): ptr(p) { }
+
  public:
+  static mig_ptr<T> adopt(T *raw) {
+    return std::move(mig_ptr<T>(raw));
+  }
+
   template<typename ...Args>
   mig_ptr(Args&& ...args) {
     {
@@ -28,7 +35,10 @@ class mig_ptr {
   }
 
   mig_ptr(const mig_ptr&) = delete;
-  mig_ptr(mig_ptr&&) = delete;
+  mig_ptr(mig_ptr&& rhs) {
+    ptr = rhs.ptr;
+    rhs.ptr = nullptr;
+  }
   mig_ptr& operator==(const mig_ptr&) = delete;
   mig_ptr& operator==(mig_ptr&&) = delete;
 
@@ -46,11 +56,11 @@ class mig_ptr {
     return outer_allocator.get_pages(ptr);
   }
 
-  //
-  // ~mig_ptr() {
-  //   // TODO: ?
-  // }
-  //
+
+  ~mig_ptr() {
+    // TODO: ?
+  }
+
 
  private:
   T *ptr;
