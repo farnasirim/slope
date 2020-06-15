@@ -99,6 +99,8 @@ class RdmaControlPlane: public ControlPlane {
 
   std::string peer_done_key(const std::string&);
 
+  void to_rts(IbvCreateQp&, QpInfo);
+
   // ************ order is important here *********************
   static inline const std::string ib_device_name_ = "mlx5_1";
   slope::keyvalue::KeyValueService::ptr keyvalue_service_;
@@ -108,7 +110,7 @@ class RdmaControlPlane: public ControlPlane {
 
   IbvDeviceContextByName ib_context_;
   int dev_attrs_result_;
-  ibv_device_attr dev_attrs;
+  ibv_device_attr dev_attrs_;
   static inline const uint16_t operating_pkey_ = 0;
   int query_port_result_;
   static inline const uint8_t operating_port_num_ = 1;
