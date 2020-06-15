@@ -124,6 +124,7 @@ class RdmaControlPlane: public ControlPlane {
   ibv_recv_wr do_migrate_wr_;
   ibv_recv_wr *do_migrate_bad_wr_;
   ibv_sge do_migrate_sge_;
+  std::map<std::string, std::unique_ptr<ibv_qp_init_attr>> do_migrate_qp_attrs;
   std::map<std::string, std::unique_ptr<IbvCreateQp>> do_migrate_qps_;
   // **********************************************************
 

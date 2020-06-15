@@ -51,18 +51,17 @@ void testdrive_migrate(slope::control::RdmaControlPlane::ptr control_plane) {
   deb(control_plane->cluster_nodes());
   if(control_plane->self_name() == control_plane->cluster_nodes().front()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    control_plane->simple_send();
-    // control_plane->do_migrate(
-    // 
-    //     control_plane->cluster_nodes()[1], ptr.get_pages()
-    //     );
+    // control_plane->simple_send();
+    control_plane->do_migrate(
+        control_plane->cluster_nodes()[1], ptr.get_pages()
+        );
   } else {
-    control_plane->simple_recv();
-    // int got_migration = 0;
-    // while(!got_migration) {
-    //   got_migration = control_plane->poll_migrate();
-    // }
-    // deb(got_migration);
+    // control_plane->simple_recv();
+    int got_migration = 0;
+    while(!got_migration) {
+      got_migration = control_plane->poll_migrate();
+    }
+    deb(got_migration);
   }
 
 }

@@ -54,7 +54,7 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
         continue;
       }
 
-      // TODO extrac constants away
+      // TODO extract constants away
       struct ibv_qp_init_attr qp_init_attr = {};
       qp_init_attr.send_cq = do_migrate_cq_.get();
       qp_init_attr.recv_cq = do_migrate_cq_.get();
@@ -66,11 +66,13 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       qp_init_attr.cap.max_recv_sge = 1;
       // qp_init.cap.max_inline_data = 60;
       qp_init_attr.qp_type = IBV_QPT_RC;
+      auto attr_ptr = std::make_unique<ibv_qp_init_attr>(qp_init_attr);
 
-      auto qp = std::make_unique<IbvCreateQp>(global_pd_.get(), &qp_init_attr);
+      auto qp = std::make_unique<IbvCreateQp>(global_pd_.get(), attr_ptr.get());
       do_migrate_qps_list.emplace_back(
           operating_port_attr_.lid, qp.get()->get()->qp_num, peer_name);
       do_migrate_qps_[peer_name] = std::move(qp);
+      do_migrate_qp_attrs[peer_name] = std::move(attr_ptr);
     }
 
     NodeInfo my_info(self_name_, do_migrate_qps_list);
@@ -106,29 +108,26 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       do_migrate_qps_[peer_name] = std::move(qp);
     }
 
-    // // prepost the do_migrate recv
-    // {
-    //   // TODO: remove this
-    //   if(self_name_ != cluster_nodes_.front()) {
-    //   for(auto& qp_ptr: do_migrate_qps_) {
-    //     debout("posting recv to do_migrate_qps:");
-    //     deb(qp_ptr.first);
-    //     auto qp = qp_ptr.second.get()->get();
-    //     do_migrate_sge_.lkey = do_migrate_mr_->lkey;
-    //     do_migrate_sge_.addr = reinterpret_cast<uintptr_t>(do_migrate_mr_->addr);
-    //     do_migrate_sge_.length = sizeof(do_migrate_req_);
+    // prepost the do_migrate recv
+    {
+      for(auto& qp_ptr: do_migrate_qps_) {
+        debout("posting recv to do_migrate_qps:");
+        deb(qp_ptr.first);
+        auto qp = qp_ptr.second.get()->get();
+        do_migrate_sge_.lkey = do_migrate_mr_->lkey;
+        do_migrate_sge_.addr = reinterpret_cast<uintptr_t>(do_migrate_mr_->addr);
+        do_migrate_sge_.length = sizeof(do_migrate_req_);
 
-    //     do_migrate_wr_ = ibv_recv_wr{};
-    //     do_migrate_bad_wr_ = nullptr;
-    //     do_migrate_wr_.wr_id = 1212;
-    //     do_migrate_wr_.num_sge = 1;
-    //     do_migrate_wr_.sg_list = &do_migrate_sge_;
-    //     int ret_post_recv = ibv_post_recv(
-    //         qp, &do_migrate_wr_, &do_migrate_bad_wr_);
-    //     assert_p(ret_post_recv == 0, "ibv_post_recv");
-    //   }
-    //   }
-    // }
+        do_migrate_wr_ = ibv_recv_wr{};
+        do_migrate_bad_wr_ = nullptr;
+        do_migrate_wr_.wr_id = 1212;
+        do_migrate_wr_.num_sge = 1;
+        do_migrate_wr_.sg_list = &do_migrate_sge_;
+        int ret_post_recv = ibv_post_recv(
+            qp, &do_migrate_wr_, &do_migrate_bad_wr_);
+        assert_p(ret_post_recv == 0, "ibv_post_recv");
+      }
+    }
 
     keyvalue_service_->set(self_name_ + "_DONE", json(my_info).dump());
     for(auto peer: cluster_nodes_) {
@@ -282,19 +281,7 @@ void from_json(const json& j, QpInfo& inf) noexcept {
 
 void RdmaControlPlane::simple_send() {
   int machine_id = 0;
-  IbvDeviceContextByName ib_context("mlx5_1");
-  IbvAllocPd pd(ib_context.get());
 
-  {
-    ibv_gid gid;
-    ibv_query_gid(ib_context.get(), 1, 0, &gid);
-    deb(gid.global.subnet_prefix);
-    deb(gid.global.interface_id);
-  }
-
-  // size_t num_messages = 128;
-  // size_t msg_size = 256;
-  // size_t mem_size = msg_size * num_messages;
   size_t amount_data_bytes_to_req = 100; // 10GB
   size_t to_alloc = amount_data_bytes_to_req + 10;
   char *mem = static_cast<char *>(memalign(4096, to_alloc));
@@ -302,35 +289,13 @@ void RdmaControlPlane::simple_send() {
   int flags =
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 
-  IbvRegMr mr(pd.get(), mem, to_alloc, flags);
-
-  ibv_device_attr dev_attrs = {};
-  {
-    int ret = ibv_query_device(ib_context.get(), &dev_attrs);
-    assert(!ret);
-  }
-
-  struct ibv_port_attr port_attr = {};
-  {
-    int ret = ibv_query_port(ib_context.get(), 1, &port_attr);
-    deb(port_attr.lid);
-    // deb(port_attr.flags);
-    //deb(port_attr.port_cap_flags2);
-    assert(!ret);
-  }
+  IbvRegMr mr(global_pd_.get(), mem, to_alloc, flags);
 
   std::cout << "before cq" << std::endl;
 
-  IbvCreateCq cq(ib_context.get(), dev_attrs.max_cqe, static_cast<void *>(NULL),
+  IbvCreateCq cq(ib_context_.get(), dev_attrs_.max_cqe, static_cast<void *>(NULL),
                  static_cast<struct ibv_comp_channel *>(NULL), 0);
   std::cout << "after cq" << std::endl;
-
-  {
-    int ret = ibv_query_port(ib_context.get(), 1, &port_attr);
-    deb(port_attr.lid);
-    assert(!ret);
-  }
-
 
   struct ibv_qp_init_attr qp_init_attr = {};
   qp_init_attr.send_cq = cq.get();
@@ -344,13 +309,7 @@ void RdmaControlPlane::simple_send() {
   // qp_init.cap.max_inline_data = 60;
   qp_init_attr.qp_type = IBV_QPT_RC;
 
-  IbvCreateQp qp(pd.get(), &qp_init_attr);
-
-  {
-    int ret = ibv_query_port(ib_context.get(), 1, &port_attr);
-    deb(port_attr.lid);
-    assert(!ret);
-  }
+  IbvCreateQp qp(global_pd_.get(), &qp_init_attr);
 
   auto target_key = std::to_string(1 - machine_id) + "exch";
   auto adv_key = std::to_string(machine_id) + "exch";
@@ -358,7 +317,7 @@ void RdmaControlPlane::simple_send() {
   deb(adv_key);
   deb(target_key);
 
-  auto local_qp = QpInfo(port_attr.lid, qp.get()->qp_num, target_key);
+  auto local_qp = QpInfo(operating_port_attr_.lid, qp.get()->qp_num, target_key);
   keyvalue_service_->set(adv_key, json(local_qp).dump());
   std::string result;
   keyvalue_service_->wait_for(target_key , result);
@@ -380,7 +339,7 @@ void RdmaControlPlane::simple_send() {
     size_t num_messages_to_request = amount_data_bytes_to_req / msg_size_to_req;
     const size_t num_concurr = 1;
 
-    std::cout << " ------------ in server" << std::endl;
+    std::cout << " ------------ in " << std::endl;
     // server
     // tell start
     *p = msg_size_to_req;
@@ -391,10 +350,6 @@ void RdmaControlPlane::simple_send() {
     sge.addr = reinterpret_cast<uint64_t>(mem);
     sge.length = sizeof (*p);
 
-    debout("start send  ###################### ");
-    deb(sge.lkey);
-    deb(sge.addr);
-    deb(sge.length);
 
     struct ibv_send_wr *bad_wr;
     struct ibv_send_wr this_wr = {};
@@ -405,12 +360,6 @@ void RdmaControlPlane::simple_send() {
     this_wr.send_flags = IBV_SEND_SIGNALED;
     this_wr.imm_data = htonl(912999);
 
-    deb(this_wr.wr_id);
-    deb(this_wr.num_sge);
-    deb(static_cast<int>(this_wr.opcode));
-    deb(this_wr.send_flags);
-    deb(this_wr.imm_data);
-
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     int ret_post_send = ibv_post_send(qp, &this_wr, &bad_wr);
     assert_p(ret_post_send >= 0, "polling");
@@ -420,14 +369,12 @@ void RdmaControlPlane::simple_send() {
     struct ibv_wc completions[num_concurr];
     while(true) {
       int poll_cq_ret = ibv_poll_cq(cq, 1, completions);
-      deb(poll_cq_ret);
       if(poll_cq_ret > 0) {
         assert_p(completions[0].status == 0, "ibv_poll_cq");
         then = std::chrono::system_clock::now();
         break;
       }
     }
-    std::cout << "signaled" << std::endl;
 
 }
 
@@ -487,19 +434,6 @@ void RdmaControlPlane::to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
 void RdmaControlPlane::simple_recv() {
   int machine_id = 1;
 
-  IbvDeviceContextByName ib_context("mlx5_1");
-  IbvAllocPd pd(ib_context.get());
-
-  {
-    ibv_gid gid;
-    ibv_query_gid(ib_context.get(), 1, 0, &gid);
-    deb(gid.global.subnet_prefix);
-    deb(gid.global.interface_id);
-  }
-
-  // size_t num_messages = 128;
-  // size_t msg_size = 256;
-  // size_t mem_size = msg_size * num_messages;
   size_t amount_data_bytes_to_req = 100; // 10GB
   size_t to_alloc = amount_data_bytes_to_req + 10;
   char *mem = static_cast<char *>(memalign(4096, to_alloc));
@@ -507,35 +441,13 @@ void RdmaControlPlane::simple_recv() {
   int flags =
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 
-  IbvRegMr mr(pd.get(), mem, to_alloc, flags);
-
-  ibv_device_attr dev_attrs = {};
-  {
-    int ret = ibv_query_device(ib_context.get(), &dev_attrs);
-    assert(!ret);
-  }
-
-  struct ibv_port_attr port_attr = {};
-  {
-    int ret = ibv_query_port(ib_context.get(), 1, &port_attr);
-    deb(port_attr.lid);
-    // deb(port_attr.flags);
-    //deb(port_attr.port_cap_flags2);
-    assert(!ret);
-  }
+  IbvRegMr mr(global_pd_.get(), mem, to_alloc, flags);
 
   std::cout << "before cq" << std::endl;
 
-  IbvCreateCq cq(ib_context.get(), dev_attrs.max_cqe, static_cast<void *>(NULL),
+  IbvCreateCq cq(ib_context_.get(), dev_attrs_.max_cqe, static_cast<void *>(NULL),
                  static_cast<struct ibv_comp_channel *>(NULL), 0);
   std::cout << "after cq" << std::endl;
-
-  {
-    int ret = ibv_query_port(ib_context.get(), 1, &port_attr);
-    deb(port_attr.lid);
-    assert(!ret);
-  }
-
 
   struct ibv_qp_init_attr qp_init_attr = {};
   qp_init_attr.send_cq = cq.get();
@@ -549,13 +461,7 @@ void RdmaControlPlane::simple_recv() {
   // qp_init.cap.max_inline_data = 60;
   qp_init_attr.qp_type = IBV_QPT_RC;
 
-  IbvCreateQp qp(pd.get(), &qp_init_attr);
-
-  {
-    int ret = ibv_query_port(ib_context.get(), 1, &port_attr);
-    deb(port_attr.lid);
-    assert(!ret);
-  }
+  IbvCreateQp qp(global_pd_.get(), &qp_init_attr);
 
   auto target_key = std::to_string(1 - machine_id) + "exch";
   auto adv_key = std::to_string(machine_id) + "exch";
@@ -563,7 +469,7 @@ void RdmaControlPlane::simple_recv() {
   deb(adv_key);
   deb(target_key);
 
-  auto local_qp = QpInfo(port_attr.lid, qp.get()->qp_num, target_key);
+  auto local_qp = QpInfo(operating_port_attr_.lid, qp.get()->qp_num, target_key);
   keyvalue_service_->set(adv_key, json(local_qp).dump());
   std::string result;
   keyvalue_service_->wait_for(target_key , result);
@@ -586,21 +492,13 @@ void RdmaControlPlane::simple_recv() {
   struct ibv_sge sge = {};
   sge.lkey = mr->lkey;
   sge.addr = reinterpret_cast<uint64_t>(mem);
-  deb(mr->addr);
-  deb(sge.addr);
   sge.length = sizeof (*p);
-
-  deb(sge.lkey);
-  deb(sge.addr);
-  deb(sge.length);
 
   struct ibv_recv_wr *bad_wr;
   struct ibv_recv_wr this_wr = {};
   this_wr.wr_id = 1212;
   this_wr.num_sge = 1;
   this_wr.sg_list = &sge;
-  deb(this_wr.wr_id);
-  deb(this_wr.num_sge);
 
   *p = 123;
   deb(*p);
@@ -620,14 +518,10 @@ void RdmaControlPlane::simple_recv() {
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  deb(amount_data_bytes_to_req);
   deb(*p);
-  deb(amount_data_bytes_to_req/static_cast<size_t>(*p));
   auto last_addr = payload;
 
 }
-
-
 
 }  // namespace control
 }  // namespace slope
