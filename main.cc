@@ -43,47 +43,56 @@ int main(int argc, char **argv) {
   int machine_id = atoi(argv[1]);
   char *memcached_confstr = argv[2];
 
-  std::vector<std::string> peers;
-  auto self_id = argv[1];
+  auto env_new = getenv("NEW");
+  if(env_new && !strcmp(env_new, "NEW")) {
+    std::vector<std::string> peers;
+    auto self_id = argv[1];
 
-  for(int i = 3; i < argc; i++) {
-    std::string current_arg = argv[i];
-    std::string peer_arg = "--peer=";
-    if(current_arg.find(peer_arg) == 0) {
-      auto maybe_peer = current_arg.substr(peer_arg.size());
-      if(maybe_peer == argv[1]) {
-        continue;
+    for(int i = 3; i < argc; i++) {
+      std::string current_arg = argv[i];
+      std::string peer_arg = "--peer=";
+      if(current_arg.find(peer_arg) == 0) {
+        auto maybe_peer = current_arg.substr(peer_arg.size());
+        if(maybe_peer == argv[1]) {
+          continue;
+        }
+        peers.push_back(current_arg.substr(peer_arg.size()));
       }
-      peers.push_back(current_arg.substr(peer_arg.size()));
-      deb(peers);
     }
+
+    if(find(peers.begin(), peers.end(), self_id) == peers.end()) {
+      peers.push_back(self_id);
+    }
+    sort(peers.begin(), peers.end());
+
+
+    auto node_index = static_cast<size_t>(find(peers.begin(), peers.end(), self_id) - peers.begin());
+    auto num_pages_for_each_node = SLOPE_NUM_PAGES/peers.size();
+    auto start_page_for_current_node = num_pages_for_each_node * node_index;
+    // deb(sizeof(node_index));
+    // deb(sizeof(start_page_for_current_node));
+    // deb(sizeof(num_pages_for_each_node));
+    slope::alloc::current_mem += start_page_for_current_node * slope::alloc::page_size;
+
+    auto kv = std::make_unique<slope::keyvalue::Memcached>(argv[2]);
+    auto slope_kv = std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
+        std::move(kv), "SLOPE_");
+
+    deb(peers);
+    std::unique_ptr<slope::control::RdmaControlPlane> control_plane = nullptr;
+
+    {
+      char hostname[4096];
+      if(!gethostname(hostname, sizeof(hostname)) &&
+          std::string(hostname).find("mel") == 0) {
+        control_plane = std::make_unique<slope::control::RdmaControlPlane> (
+            self_id, peers, std::move(slope_kv));
+      }
+    }
+
+    testdrive_migrate(std::move(control_plane));
+    return 0;
   }
-
-  if(find(peers.begin(), peers.end(), self_id) == peers.end()) {
-    peers.push_back(self_id);
-  }
-  sort(peers.begin(), peers.end());
-
-
-  auto node_index = static_cast<size_t>(find(peers.begin(), peers.end(), self_id) - peers.begin());
-  auto num_pages_for_each_node = SLOPE_NUM_PAGES/peers.size();
-  auto start_page_for_current_node = num_pages_for_each_node * node_index;
-  // deb(sizeof(node_index));
-  // deb(sizeof(start_page_for_current_node));
-  // deb(sizeof(num_pages_for_each_node));
-  slope::alloc::current_mem += start_page_for_current_node * slope::alloc::page_size;
-
-  auto kv = std::make_unique<slope::keyvalue::Memcached>(argv[2]);
-  auto slope_kv = std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
-      std::move(kv), "SLOPE_");
-
-  deb(peers);
-  auto ptr = std::make_unique<slope::control::RdmaControlPlane> (
-      self_id, peers, std::move(slope_kv));
-
-
-
-  return 0;
 
 /////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////
@@ -116,47 +125,47 @@ int main(int argc, char **argv) {
   ibv_device_attr dev_attrs = {};
   {
     int ret = ibv_query_device(ib_context.get(), &dev_attrs);
-    deb(static_cast<int>(dev_attrs.phys_port_cnt));
-    deb(dev_attrs.fw_ver[64]);
-    deb(dev_attrs.node_guid);
-    deb(dev_attrs.sys_image_guid);
-    deb(dev_attrs.max_mr_size);
-    deb(dev_attrs.page_size_cap);
-    deb(dev_attrs.vendor_id);
-    deb(dev_attrs.vendor_part_id);
-    deb(dev_attrs.hw_ver);
-    deb(dev_attrs.max_qp);
-    deb(dev_attrs.max_qp_wr);
-    deb(dev_attrs.device_cap_flags);
-    deb(dev_attrs.max_sge);
-    deb(dev_attrs.max_sge_rd);
-    deb(dev_attrs.max_cq);
-    deb(dev_attrs.max_cqe);
-    deb(dev_attrs.max_mr);
-    deb(dev_attrs.max_pd);
-    deb(dev_attrs.max_qp_rd_atom);
-    deb(dev_attrs.max_ee_rd_atom);
-    deb(dev_attrs.max_res_rd_atom);
-    deb(dev_attrs.max_qp_init_rd_atom);
-    deb(dev_attrs.max_ee_init_rd_atom);
-    deb(static_cast<int>(dev_attrs.atomic_cap));
-    deb(dev_attrs.max_ee);
-    deb(dev_attrs.max_rdd);
-    deb(dev_attrs.max_mw);
-    deb(dev_attrs.max_raw_ipv6_qp);
-    deb(dev_attrs.max_raw_ethy_qp);
-    deb(dev_attrs.max_mcast_grp);
-    deb(dev_attrs.max_mcast_qp_attach);
-    deb(dev_attrs.max_total_mcast_qp_attach);
-    deb(dev_attrs.max_ah);
-    deb(dev_attrs.max_fmr);
-    deb(dev_attrs.max_map_per_fmr);
-    deb(dev_attrs.max_srq);
-    deb(dev_attrs.max_srq_wr);
-    deb(dev_attrs.max_srq_sge);
-    deb(dev_attrs.max_pkeys);
-    deb(dev_attrs.local_ca_ack_delay);
-    deb(dev_attrs.phys_port_cnt);
+    // deb(static_cast<int>(dev_attrs.phys_port_cnt));
+    // deb(dev_attrs.fw_ver[64]);
+    // deb(dev_attrs.node_guid);
+    // deb(dev_attrs.sys_image_guid);
+    // deb(dev_attrs.max_mr_size);
+    // deb(dev_attrs.page_size_cap);
+    // deb(dev_attrs.vendor_id);
+    // deb(dev_attrs.vendor_part_id);
+    // deb(dev_attrs.hw_ver);
+    // deb(dev_attrs.max_qp);
+    // deb(dev_attrs.max_qp_wr);
+    // deb(dev_attrs.device_cap_flags);
+    // deb(dev_attrs.max_sge);
+    // deb(dev_attrs.max_sge_rd);
+    // deb(dev_attrs.max_cq);
+    // deb(dev_attrs.max_cqe);
+    // deb(dev_attrs.max_mr);
+    // deb(dev_attrs.max_pd);
+    // deb(dev_attrs.max_qp_rd_atom);
+    // deb(dev_attrs.max_ee_rd_atom);
+    // deb(dev_attrs.max_res_rd_atom);
+    // deb(dev_attrs.max_qp_init_rd_atom);
+    // deb(dev_attrs.max_ee_init_rd_atom);
+    // deb(static_cast<int>(dev_attrs.atomic_cap));
+    // deb(dev_attrs.max_ee);
+    // deb(dev_attrs.max_rdd);
+    // deb(dev_attrs.max_mw);
+    // deb(dev_attrs.max_raw_ipv6_qp);
+    // deb(dev_attrs.max_raw_ethy_qp);
+    // deb(dev_attrs.max_mcast_grp);
+    // deb(dev_attrs.max_mcast_qp_attach);
+    // deb(dev_attrs.max_total_mcast_qp_attach);
+    // deb(dev_attrs.max_ah);
+    // deb(dev_attrs.max_fmr);
+    // deb(dev_attrs.max_map_per_fmr);
+    // deb(dev_attrs.max_srq);
+    // deb(dev_attrs.max_srq_wr);
+    // deb(dev_attrs.max_srq_sge);
+    // deb(dev_attrs.max_pkeys);
+    // deb(dev_attrs.local_ca_ack_delay);
+    // deb(dev_attrs.phys_port_cnt);
     assert(!ret);
   }
 
@@ -303,6 +312,11 @@ int main(int argc, char **argv) {
     sge.addr = reinterpret_cast<uint64_t>(mem);
     sge.length = sizeof (*p);
 
+    debout("start send  ###################### ");
+    deb(sge.lkey);
+    deb(sge.addr);
+    deb(sge.length);
+
     struct ibv_send_wr *bad_wr;
     struct ibv_send_wr this_wr = {};
     this_wr.wr_id = 1212;
@@ -312,6 +326,12 @@ int main(int argc, char **argv) {
     this_wr.send_flags = IBV_SEND_SIGNALED;
     this_wr.imm_data = htonl(912999);
 
+    deb(this_wr.wr_id);
+    deb(this_wr.num_sge);
+    deb(static_cast<int>(this_wr.opcode));
+    deb(this_wr.send_flags);
+    deb(this_wr.imm_data);
+
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     int ret_post_send = ibv_post_send(qp, &this_wr, &bad_wr);
     assert_p(ret_post_send >= 0, "polling");
@@ -320,8 +340,9 @@ int main(int argc, char **argv) {
 
     struct ibv_wc completions[num_concurr];
     while(true) {
-      int ret = ibv_poll_cq(cq, 1, completions);
-      if(ret > 0) {
+      int poll_cq_ret = ibv_poll_cq(cq, 1, completions);
+      deb(poll_cq_ret);
+      if(poll_cq_ret > 0) {
         assert_p(completions[0].status == 0, "ibv_poll_cq");
         then = std::chrono::system_clock::now();
         break;
@@ -379,6 +400,7 @@ int main(int argc, char **argv) {
     std::cout << std::endl;
 
   } else {
+    debout("start recv ###################### ");
     struct ibv_sge sge = {};
     sge.lkey = mr->lkey;
     sge.addr = reinterpret_cast<uint64_t>(mem);
@@ -386,11 +408,17 @@ int main(int argc, char **argv) {
     deb(sge.addr);
     sge.length = sizeof (*p);
 
+    deb(sge.lkey);
+    deb(sge.addr);
+    deb(sge.length);
+
     struct ibv_recv_wr *bad_wr;
     struct ibv_recv_wr this_wr = {};
     this_wr.wr_id = 1212;
     this_wr.num_sge = 1;
     this_wr.sg_list = &sge;
+    deb(this_wr.wr_id);
+    deb(this_wr.num_sge);
 
     int ret = ibv_post_recv(qp, &this_wr, &bad_wr);
 
@@ -399,6 +427,7 @@ int main(int argc, char **argv) {
     struct ibv_wc completions[1];
     while(true) {
       int ret_poll_cq = ibv_poll_cq(cq, 1, completions);
+      deb(ret_poll_cq);
       assert_p(ret_poll_cq >= 0, "ibv_poll_cq");
       if(ret_poll_cq > 0) {
         assert_p(completions[0].status == 0, "ibv_poll_cq");
