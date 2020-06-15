@@ -16,14 +16,14 @@ class mig_ptr {
   mig_ptr(Args&& ...args) {
     {
       auto outer_allocator = alloc::allocator_instance<T>();
-      debout("create context");
+      // debout("create context");
       auto context = outer_allocator.create_context(outer_allocator.context_init);
-      debout("alloc for object");
-      auto object_mem = outer_allocator.allocate(sizeof(T));
-      debout("call ctor of object");
+      // debout("alloc for object");
+      auto object_mem = outer_allocator.allocate(1);
+      // debout("call ctor of object");
       new(object_mem) T(std::forward<Args>(args)...);
       ptr = object_mem;
-      std::cout << "aboute done" << std::endl;
+      // std::cout << "about done" << std::endl;
     }
   }
 
