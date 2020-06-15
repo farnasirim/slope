@@ -15,6 +15,9 @@ class ControlPlane {
 
   virtual bool do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>&) = 0;
+
+  virtual const std::string self_name() = 0;
+  virtual const std::vector<std::string> cluster_nodes() = 0;
 };
 
 }  // namespace control

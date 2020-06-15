@@ -43,16 +43,26 @@ struct NodeInfo {
 extern "C" {
 
 struct DoMigrateRequest {
+  size_t number_of_chunks;
+};
 
+struct DoMigrateChunk {
+  uintptr_t addr;
+  size_t sz;
 };
 }
 
 class RdmaControlPlane: public ControlPlane {
 
  public:
+  const std::string self_name_;
+  const std::vector<std::string> cluster_nodes_;
+
   using ptr = std::unique_ptr<RdmaControlPlane>;
   virtual bool do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>&) final override;
+
+  bool poll_migrate();
 
   template<typename T>
   bool do_migrate(const std::string& dest, const mig_ptr<T>& p) {
@@ -66,6 +76,12 @@ class RdmaControlPlane: public ControlPlane {
   bool init_kvservice();
 
   void attach_dataplane(slope::data::DataPlane::ptr );
+
+  const std::string self_name() final override;
+  const std::vector<std::string> cluster_nodes() final override;
+
+  void simple_send();
+  void simple_recv();
 
  private:
   void init_cluster();
@@ -85,8 +101,6 @@ class RdmaControlPlane: public ControlPlane {
 
   // ************ order is important here *********************
   static inline const std::string ib_device_name_ = "mlx5_1";
-  const std::string self_name_;
-  const std::vector<std::string> cluster_nodes_;
   slope::keyvalue::KeyValueService::ptr keyvalue_service_;
   slope::data::DataPlane::ptr dataplane_;
 
@@ -105,7 +119,10 @@ class RdmaControlPlane: public ControlPlane {
   DoMigrateRequest do_migrate_req_;
   IbvRegMr do_migrate_mr_;
   IbvCreateCq do_migrate_cq_;
-  std::unordered_map<std::string, std::unique_ptr<IbvCreateQp>> do_migrate_qps_;
+  ibv_recv_wr do_migrate_wr_;
+  ibv_recv_wr *do_migrate_bad_wr_;
+  ibv_sge do_migrate_sge_;
+  std::map<std::string, std::unique_ptr<IbvCreateQp>> do_migrate_qps_;
   // **********************************************************
 
   // std::vector<std::shared_ptr<

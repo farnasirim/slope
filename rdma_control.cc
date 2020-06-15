@@ -1,6 +1,8 @@
 #include "rdma_control.h"
 
 #include <cassert>
+#include <arpa/inet.h>
+#include <thread>
 
 #include "mig.h"
 #include "data.h"
@@ -13,6 +15,13 @@ namespace slope {
 namespace control {
 
 using json = nlohmann::json;
+
+const std::string RdmaControlPlane::self_name() {
+  return self_name_;
+}
+const std::vector<std::string> RdmaControlPlane::cluster_nodes() {
+  return cluster_nodes_;
+}
 
 RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       const std::vector<std::string>& cluster_nodes,
@@ -37,7 +46,7 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
     }
 
     std::vector<QpInfo> do_migrate_qps_list;
-    for(auto& peer_name: cluster_nodes_) {
+    for(auto peer_name: cluster_nodes_) {
       if(peer_name == self_name_) {
         continue;
       }
@@ -135,7 +144,32 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
 
         assert_p(ret == 0, "IBV_QPS_RTS");
       }
+      deb(static_cast<int>(the_qp_ptr->state));
     }
+
+    // // prepost the do_migrate recv
+    // {
+    //   // TODO: remove this
+    //   if(self_name_ != cluster_nodes_.front()) {
+    //   for(auto& qp_ptr: do_migrate_qps_) {
+    //     debout("posting recv to do_migrate_qps:");
+    //     deb(qp_ptr.first);
+    //     auto qp = qp_ptr.second.get()->get();
+    //     do_migrate_sge_.lkey = do_migrate_mr_->lkey;
+    //     do_migrate_sge_.addr = reinterpret_cast<uintptr_t>(do_migrate_mr_->addr);
+    //     do_migrate_sge_.length = sizeof(do_migrate_req_);
+
+    //     do_migrate_wr_ = ibv_recv_wr{};
+    //     do_migrate_bad_wr_ = nullptr;
+    //     do_migrate_wr_.wr_id = 1212;
+    //     do_migrate_wr_.num_sge = 1;
+    //     do_migrate_wr_.sg_list = &do_migrate_sge_;
+    //     int ret_post_recv = ibv_post_recv(
+    //         qp, &do_migrate_wr_, &do_migrate_bad_wr_);
+    //     assert_p(ret_post_recv == 0, "ibv_post_recv");
+    //   }
+    //   }
+    // }
 
     keyvalue_service_->set(self_name_ + "_DONE", json(my_info).dump());
     for(auto peer: cluster_nodes_) {
@@ -149,6 +183,17 @@ void RdmaControlPlane::init_cluster() {
   assert(keyvalue_service_->set(migrate_in_progress_cas_name_, "0"));
 }
 
+bool RdmaControlPlane::poll_migrate() {
+  std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
+
+  struct ibv_wc completions[1];
+  int ret_poll_cq = ibv_poll_cq(do_migrate_cq_, 1, completions);
+  assert_p(ret_poll_cq >= 0, "poll_migrate: ibv_poll_cq");
+  deb(ret_poll_cq);
+
+  return ret_poll_cq == 1;
+}
+
 bool RdmaControlPlane::do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>& chunks) {
 
@@ -160,6 +205,7 @@ bool RdmaControlPlane::do_migrate(const std::string& dest,
   }
   std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
 
+  debout("start ping pong");
   start_migrate_ping_pong(dest, chunks);
   // Later TODO: prefill
   // Laterer TODO: make sure prefill is pluggable
@@ -194,8 +240,39 @@ void RdmaControlPlane::attach_dataplane(slope::data::DataPlane::ptr dataplane) {
 
 void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
     const std::vector<slope::alloc::memory_chunk>& chunks) {
+
   auto dest_qp = do_migrate_qps_[dest].get()->get();
 
+  {
+    do_migrate_req_.number_of_chunks = chunks.size();
+
+    struct ibv_sge sge = {};
+    sge.lkey = do_migrate_mr_->lkey;
+    sge.addr = reinterpret_cast<uintptr_t>(&do_migrate_req_);
+    sge.length = sizeof (do_migrate_req_);
+
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
+    this_wr.wr_id = 1212;
+    this_wr.num_sge = 1;
+    this_wr.sg_list = &sge;
+    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.imm_data = 123;
+
+    int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
+    deb(ret_post_send);
+    assert_p(ret_post_send == 0, "ibv_post_send");
+    struct ibv_wc completions[1];
+    while(true) {
+      int ret = ibv_poll_cq(do_migrate_cq_.get(), 1, completions);
+      if(ret > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        break;
+      }
+    }
+  }
+  debout("done");
 }
 
 void RdmaControlPlane::transfer_ownership_ping_pong(const std::string& dest,
@@ -241,6 +318,144 @@ void from_json(const json& j, QpInfo& inf) noexcept {
   j.at("host_qp_num").get_to(inf.host_qp_num);
 }
 
+
+void RdmaControlPlane::simple_send() {
+  std::cout << "something" <<std::endl;
+  deb(do_migrate_qps_.size());
+  auto qp = do_migrate_qps_.begin()->second.get()->get();
+  int mem[200];
+  IbvRegMr mr(global_pd_.get(), mem, sizeof(mem), do_migrate_mr_flags_);
+  struct ibv_sge sge = {};
+  sge.lkey = mr->lkey;
+  sge.addr = reinterpret_cast<uint64_t>(mem);
+  sge.length = sizeof(mem)/4;
+
+  deb(sge.lkey);
+  deb(sge.addr);
+  deb(sge.length);
+
+  struct ibv_send_wr *bad_wr;
+  struct ibv_send_wr this_wr = {};
+  this_wr.wr_id = 1212;
+  this_wr.num_sge = 1;
+  this_wr.sg_list = &sge;
+  this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+  this_wr.send_flags = IBV_SEND_SIGNALED;
+  this_wr.imm_data = htonl(912999);
+
+  deb(this_wr.wr_id);
+  deb(this_wr.num_sge);
+  deb(static_cast<int>(this_wr.opcode));
+  deb(this_wr.send_flags);
+  deb(this_wr.imm_data);
+
+  int ret_post_send = ibv_post_send(qp, &this_wr, &bad_wr);
+  deb(ret_post_send);
+  assert_p(ret_post_send == 0, "ret post send ");
+
+  struct ibv_wc completions[1];
+  while(true) {
+    int poll_cq_ret = ibv_poll_cq(do_migrate_cq_, 1, completions);
+    deb(poll_cq_ret);
+    if(poll_cq_ret > 0) {
+      assert_p(completions[0].status == 0, "ibv_poll_cq");
+      // then = std::chrono::system_clock::now();
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+//    std::cout << "signaled" << std::endl;
+// 
+//    size_t current_posted = 0;
+//    char *last_addr = payload;
+//    {
+//    int ret = ibv_poll_cq(cq, num_concurr, completions);
+//    deb(ret);
+//    }
+//    deb(num_messages_to_request);
+//    int done = 0;
+//    //num_messages_to_request --;
+//    while(num_messages_to_request) {
+//      // std::cout << "here" << std::endl;
+//      int ret = ibv_poll_cq(cq, num_concurr, completions);
+//      if(ret > 0) {
+//        std::cout << "poll suc" << std::endl;
+//        for(int i = 0; i < ret; i++) {
+//          assert_p(completions[i].status == 0, "ibv_poll_cq");
+//        }
+//      }
+//      assert_p(ret >= 0, "ret < 0 incorrectly");
+//      num_messages_to_request -= static_cast<size_t>(ret);
+//      current_posted -= static_cast<size_t>(ret);
+//      done += ret;
+//      while (current_posted < num_concurr && num_messages_to_request > current_posted) {
+//        current_posted += 1;
+//        struct ibv_sge sge = {};
+//        sge.lkey = mr->lkey;
+//        sge.addr = reinterpret_cast<uint64_t>(last_addr);
+//        sge.length = msg_size_to_req;
+// 
+//        last_addr += msg_size_to_req;
+// 
+//        struct ibv_recv_wr *bad_wr;
+//        struct ibv_recv_wr this_wr = {};
+//        this_wr.wr_id = 1212;
+//        this_wr.num_sge = 1;
+//        this_wr.sg_list = &sge;
+// 
+//        int ret_post_recv = ibv_post_recv(qp, &this_wr, &bad_wr);
+//        assert_p(ret_post_recv == 0, "ibv_post_recv");
+//      }
+//    }
+//    deb(done);
+// 
+// 
+//    for(long long i = 0; i < static_cast<long long>(to_alloc); i++) {
+//      std::cout << static_cast<int>(mem[i]) << " ";
+//    }
+//    std::cout << std::endl;
+}
+
+void RdmaControlPlane::simple_recv() {
+  deb(do_migrate_qps_.size());
+  auto qp = do_migrate_qps_.begin()->second.get()->get();
+  int mem[200];
+  IbvRegMr mr(global_pd_.get(), mem, sizeof(mem), do_migrate_mr_flags_);
+  struct ibv_sge sge = {};
+  sge.lkey = mr->lkey;
+  sge.addr = reinterpret_cast<uint64_t>(mem);
+  deb(mr->addr);
+  deb(sge.addr);
+  sge.length = sizeof(mem)/2;
+
+  deb(sge.lkey);
+  deb(sge.addr);
+  deb(sge.length);
+
+  struct ibv_recv_wr *bad_wr;
+  struct ibv_recv_wr this_wr = {};
+  this_wr.wr_id = 1212;
+  this_wr.num_sge = 1;
+  this_wr.sg_list = &sge;
+  deb(this_wr.wr_id);
+  deb(this_wr.num_sge);
+
+  int ret = ibv_post_recv(qp, &this_wr, &bad_wr);
+  assert_p(ret == 0, "ibv_post_recv");
+
+  struct ibv_wc completions[1];
+  while(true) {
+    int ret_poll_cq = ibv_poll_cq(do_migrate_cq_, 1, completions);
+    deb(ret_poll_cq);
+    assert_p(ret_poll_cq >= 0, "ibv_poll_cq");
+    if(ret_poll_cq > 0) {
+      assert_p(completions[0].status == 0, "ibv_poll_cq");
+      //then = std::chrono::system_clock::now();
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+}
 
 }  // namespace control
 }  // namespace slope
