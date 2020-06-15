@@ -1,9 +1,9 @@
 #include "testdrive_migrate.h"
 
 #include <unistd.h>
-#include <iomanip>
+#include <thread>
+#include <sstream>
 
-#include "discovery.h"
 #include "ib.h"
 #include "ib_container.h"
 #include "logging.h"
@@ -25,106 +25,44 @@ using mig_alloc = slope::alloc::FixedPoolAllocator<T>;
 
 using json = nlohmann::json;
 
-void to_json(json& j, const NodeInfo& inf) {
-  j = json{
-    {"node_id", inf.node_id}
-  };
-}
-
-void from_json(const json& j, NodeInfo& inf) {
-  j.at("node_id").get_to(inf.node_id);
-}
-
-void do_src(slope::discovery::DiscoverySerivce& d,
-    slope::control::ControlPlane::ptr control_plane,
-    const char *node_id) {
-
-  json info ;
-  info["node_id"] = node_id;
-
-  char name[200];
-  assert(!gethostname(name, 200));
-  if(std::strcmp(name, "colonelthink")) {
-    IbvDeviceContextByName ib_context("mlx5_1");
-    IbvAllocPd pd(ib_context.get());
-  }
-
-  deb(info);
-  d.register_node(node_id, info.dump());
-  auto peers_info = d.wait_for_peers();
-
-
-  if(node_id == min_element(peers_info.begin(), peers_info.end())->first) {
-    // init control plane
-  }
-
-  for(auto inf: peers_info) {
-    deb(inf.first);
-    deb(inf.second);
-    deb(json::parse(inf.second).dump(4));
-    // std::cout << std::setw(4) <<  json(inf.second).dump(4) << std::endl;
-  }
-
-}
-
-void do_snk(slope::discovery::DiscoverySerivce& d,
-    slope::control::ControlPlane::ptr control_plane,
-    const char *node_id) {
-
-  do_common(d, control_plane, node_id);
-
-  debout("first");
-  slope::mig_ptr<mig_vector<int>> ptr(static_cast<size_t>(10), 0);
-  std::cout << "before" << std::endl;
-  deb(slope::alloc::global_ownership_stack.size());
+void testdrive_migrate(slope::control::RdmaControlPlane::ptr control_plane) {
+  debout("start testdrive_migrate");
+  slope::mig_ptr<mig_vector<int>> ptr;
+  debout("finished creating a vector of int of size 0");
   {
-    deb(slope::alloc::global_ownership_stack.size());
+    debout("acquiring a context for adding elements to the vector");
     auto lock = ptr.create_context();
-    deb(slope::alloc::global_ownership_stack.size());
-    for(size_t i = 0;i < 10; i++) {
-      (*ptr.get())[i] = i;
+    for(int i = 0; i <10; i++) {
+      ptr.get()->push_back(i);
     }
   }
-  deb(slope::alloc::global_ownership_stack.size());
 
-  for(size_t i = 0;i < 10; i++) {
-    std::cout << (*ptr.get())[i] << " ";
-  }
-  std::cout << std::endl;
-
-  std::cout << "done" << std::endl;
   deb(*ptr.get());
 
   for(auto it: ptr.get_pages()) {
-    deb(it);
-    // rdma address: it.first with size it.second to another machine
+    std::stringstream out;
+    out << std::showbase << std::internal << std::setfill('0')
+        << " @" << std::hex << std::setw(16) << it.first;
+    out << " " << it.second;
+    debout(out.str());
   }
 
-  deb(slope::alloc::global_ownership_stack.size());
-  // for(auto& it: slope::alloc::global_ownership_stack) {
-  //   it.
-  // }
-
-  // IbvDeviceContextByName ib_context("mlx5_1");
-  // IbvAllocPd pd(ib_context.get());
-
-  // int flags =
-  //     IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
-
-}
-
-void do_common(slope::discovery::DiscoverySerivce& d,
-    slope::control::ControlPlane::ptr& control_plane,
-    const char *node_id) {
-  do_common(d, control_plane, node_id);
-}
-
-void testdrive_migrate(slope::discovery::DiscoverySerivce& d,
-    slope::control::ControlPlane::ptr control_plane,
-    const char *node_id) {
-  if(std::string(node_id).find("0") != std::string::npos) {
-    do_src(d, std::move(control_plane), node_id);
+  debout("start the migration");
+  deb(control_plane->cluster_nodes());
+  if(control_plane->self_name() == control_plane->cluster_nodes().front()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    control_plane->simple_send();
+    // control_plane->do_migrate(
+    // 
+    //     control_plane->cluster_nodes()[1], ptr.get_pages()
+    //     );
   } else {
-    do_snk(d, std::move(control_plane), node_id);
+    control_plane->simple_recv();
+    // int got_migration = 0;
+    // while(!got_migration) {
+    //   got_migration = control_plane->poll_migrate();
+    // }
+    // deb(got_migration);
   }
+
 }
