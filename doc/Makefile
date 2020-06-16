@@ -1,24 +1,13 @@
-all: thesis.pdf
+.PHONY: all
 
-run:
-	while sleep .2; do yes x | make -s t.pdf; done
+all:
+	pdflatex thesis.tex
+	bibtex thesis.aux
+	pdflatex thesis.tex
+	bibtex thesis.aux
+	pdflatex thesis.tex
+	bibtex thesis.aux
 
-t.pdf: thesis.pdf
-	mv $< $@
-	cp $@ $<
-
-show: thesis.pdf
-	xdg-open $< &
-
-%.aux %.pdf: %.tex
-	pdflatex $*
-
-%.bbl: %.aux
-	bibtex $*
-
-thesis.pdf: ${wildcard *.tex} thesis.bbl
-
-thesis.bbl: thesis.bib
 
 clean:
 	$(RM) thesis.pdf *.aux *.bak *.bbl *.blg *.log *.out *.toc *.brf *.loa *.lot
