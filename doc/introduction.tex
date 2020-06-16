@@ -1,5 +1,52 @@
 \chapter{Introduction}
 \label{chap:introduction}
 
-\section{Section with RDMA background}
+\section{Data structure centric distributed systems}
+
+\TODO{How do I write something general about data locality and load imbalance?}
+The use of in-memory data processing systems has recently grown as a result of
+different advances in computer hardware. Lower operating cost of DRAM means we
+are incentivized to design systems that sacrifice memory usage for performance.
+Faster network interconnects reduce the latency of communication between
+machines, minimizing the performance cost of scaling out server software.
+Analogically similar to the above, persistent memory tightens the performance
+gap between in-memory data processing and file system persistence layer,
+allowing applications to persist data structures as fast as they can use them
+in main memory, as they are kept consistent across operations.
+
+\TODO{citations?}
+these improvements have collectively and independently cast doubt on the precondition of
+``slow devices, fast CPU'' by gradually shifting both latency and throughput
+bottlenecks towards the classical position of the processor and the kernel.
+This had encouraged research towards building systems which manage their
+network communication and storage more closely. User space networking \TODO{ cite
+DPDK and/or the likes and things that use them? what else?} and managing high
+traffic data structures like hash-tables and balanced binary search trees
+\TODO{mention masstree or similar, and some usages?} in the application are
+both research trends in developing what we call \emph{data structure centric}
+applications \TODO{citations/examples?}. Indeed the operating system kernel provides networking and high
+level interface to useful data structures (e.g. through the interface of file
+systems) but for high performance applications, the performance gain from using
+a specialized way of managing data is worth the complexity.
+Some of these systems target low latency, but all of them have to provide
+a solution for higher throughput workloads. As we exhaust the resource limits
+of a single machine, this becomes synonymous to how the system scales out to
+multiple machines.\TODO{suitable point to break the paragraph?}
+
+In multi-machine environments, any non-trivial (read-only in essence) system
+faces problems that also become apparent when we cross the single-threaded
+to multi-threaded boundary: how to manage accesses to shared data and where to
+schedule computations. These in part translate to two separate objectives in
+the design of data structure centric distributed systems. \TODO{should I use a
+hyphen in there?}
+\begin{itemize}
+    \item How to keep computation close to the data that it uses (Locality)
+    \item Where to process each request to avoid overloading any of the machines (Load balancing)
+\end{itemize}
+
+
+\section{Locality and Load balancing}
+
+
+\section{RDMA background}
 
