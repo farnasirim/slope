@@ -1,11 +1,11 @@
 .PHONY: all
 
 all:
-	pdflatex thesis.tex
+	pdflatex -halt-on-error thesis.tex
 	bibtex thesis.aux
-	pdflatex thesis.tex
+	pdflatex -halt-on-error thesis.tex
 	bibtex thesis.aux
-	pdflatex thesis.tex
+	pdflatex -halt-on-error thesis.tex
 	bibtex thesis.aux
 
 
