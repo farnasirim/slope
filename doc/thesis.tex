@@ -62,6 +62,7 @@
 %% *** Add any desired options. ***
 \documentclass{ut-thesis}
 
+\usepackage{xcolor}
 %% *** Add \usepackage declarations here. ***
 %% The standard packages `geometry' and `setspace' are already loaded by
 %% `ut-thesis' -- see their documentation for details of the features
@@ -98,7 +99,7 @@
 %% \newenvironment's, \newtheorem's, etc. (in other words, all the
 %% global definitions that you will need throughout your thesis) in a
 %% separate file and use "\input{filename}" to input it here.
-
+\newcommand\TODO[1]{\textcolor{red}{(#1)}}
 
 %% *** Adjust the following settings as desired. ***
 
@@ -130,7 +131,23 @@
 %% according to SGS guidelines.
 \begin{abstract}
 %% *** Put your Abstract here. ***
-%% (At most 150 words for M.Sc. or 350 words for Ph.D.)
+    Load imbalance and data locality are important \TODO{how important,
+    based on what} performance factor in software systems \TODO{more specific?}.
+    Moving in-memory resources across machines can directly impact the
+    above metrics, however changing \TODO{better word?} the designs of
+    data~structures to make them migratable \TODO{a bit complicated} is not only
+    a non-trivial task but also can incur
+    performance penalties resulting from serialization and de-serialization and
+    increased CPU usage.
+
+    In this thesis we introduce Slope, a plugable solution for making already
+    existing data~structures migratable. Our approach eliminates data
+    serialization and can be applied to already existing data~structures. We
+    use RDMA as the transport which plays naturally with the design of Slope \TODO{this says nothing.}
+    Slope can be incorporated to already existing performance-critical systems
+    like transaction processing systems to provide them means of load balancing
+    their hot data~structures.\TODO{this sounds like a sketch}
+    We evaluate on blah \TODO{revisit}.
 \end{abstract}
 
 %% Anything placed between the abstract and table of contents will
@@ -156,9 +173,9 @@
 
 %% This generates an "acknowledgements" section, if needed
 %% (uncomment to have it appear in the document).
-%\begin{acknowledgements}
-%% *** Put your Acknowledgements here. ***
-%\end{acknowledgements}
+\begin{acknowledgements}
+    Thank you Angela for never yelling at a very yellabel me.
+\end{acknowledgements}
 
 %% This generates the Table of Contents (on a separate page).
 \tableofcontents
@@ -202,6 +219,7 @@
 %% *** Set the bibliography style. ***
 %% (change according to your preference/requirements)
 \bibliographystyle{plain}
+
 %% *** Set the bibliography file. ***
 %% ("thesis.bib" by default; change as needed)
 \bibliography{thesis}
