@@ -1,11 +1,14 @@
 .PHONY: all
 
+run:
+	while true ; do make all && (diff thesis.pdf view.pdf || mv thesis.pdf view.pdf) ; sleep 2 ; done
+
 all:
-	pdflatex -halt-on-error thesis.tex
+	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
 	bibtex thesis.aux
-	pdflatex -halt-on-error thesis.tex
+	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
 	bibtex thesis.aux
-	pdflatex -halt-on-error thesis.tex
+	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
 	bibtex thesis.aux
 
 
