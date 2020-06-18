@@ -62,8 +62,15 @@
 %% *** Add any desired options. ***
 \documentclass{ut-thesis}
 
+\pdfinfoomitdate 1
+\pdfsuppressptexinfo-1
+\pdftrailerid{}
+
+
 \usepackage{xcolor}
 \usepackage{enumitem}
+\usepackage{pgfplots}
+\pgfplotsset{compat=newest}
 %% *** Add \usepackage declarations here. ***
 %% The standard packages `geometry' and `setspace' are already loaded by
 %% `ut-thesis' -- see their documentation for details of the features
@@ -102,6 +109,11 @@
 %% separate file and use "\input{filename}" to input it here.
 \newcommand\TODO[1]{\textcolor{red}{(#1)}}
 
+\newcommand{\includesvg}[1]{%
+    \immediate\write18{inkscape -D --export-type=pdf --export-latex -o #1.pdf #1.svg}%
+    \input{#1.pdf_tex}%
+}
+
 %% *** Adjust the following settings as desired. ***
 
 %% List only down to subsections in the table of contents;
@@ -130,7 +142,9 @@
 
 %% This generates the abstract page, with the line spacing adjusted
 %% according to SGS guidelines.
+
 \begin{abstract}
+
 %% *** Put your Abstract here. ***
     Load imbalance and data locality are important \TODO{how important,
     based on what} performance factor in software systems \TODO{more specific?}.
@@ -149,6 +163,10 @@
     like transaction processing systems to provide them means of load balancing
     their hot data~structures.\TODO{more concrete}
     We evaluate on blah \TODO{incomplete}.
+
+% TODO:
+\TODO{remove these before final build: pdfinfoomitdate 1 pdfsuppressptexinfo-1 pdftrailerid
+}
 \end{abstract}
 
 %% Anything placed between the abstract and table of contents will

@@ -1,10 +1,31 @@
 \chapter{Related Work}
 \label{chap:related}
 
+ramp: We make every data structure migratable in a blackbox fashion, without
+
+is not backwards compatible with c++,
+
+is susceptible to contention in allocating memory regions
+
+uses stateful allocators
+
+changing the how memory allocators are generally used in C++ (e.g. STL)
+
+We can use the allocators that have been previously developed, because we
+conform to the c++ requirement of the allocators (operator== and operator!=,
+resulting in the allocators being stateless).
+
+(I hope) shorter in-between time when migrating
+
+\TODO{backward and forward references to ramp?}
+
+
+
 shared memory systems
 
-slope: is not backwards compatible with c++, is susceptible to contention
-stateful allocators
+
+RPC over rdma papers erpc, design guidelines, fasst \TODO{I thought they were relevant, I don't think so now.}
+
 
 derecho
 

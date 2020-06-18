@@ -7,11 +7,75 @@
 \section{Platform}
 - usable with current c++ data structures
 
-\section{...}
+\section{???}
 
 Other rpc's are pluggable into slope.
-An elaborate rpc won't make too much of a difference: very small number of messages exchanged upon migrations
+An elaborate rpc inside won't make too much of a difference: very small number of messages exchanged upon migrations
 
 We believe rdma must be used the way more mature resources are used, and must not require an exclusive perimeter of cpu-bound threads and lots of memory and whatnot is dedicated to it.
 
+One migration destination per node
+\TODO{For the cases similar to this one where we discussed a better solution but
+I'm currently implementing a simpler solution (e.g. allocation),
+is it ok to just talk about and
+provide the final solution without mentioning my more trivial implementation,
+even if I never implement the better version (for things that are not on
+the critical path of a particular requirement and do not affect benchmarks)?}
 
+
+
+\section{Slope internals}
+
+instances mmap a mutual (fixed possibly at run-time) chunk of virtual address. This is called the migratable memory or slope memory.
+We keep a thread local context stack which keeps track of the owner of each memory allocation. \TODO{Sequence diagram-like figure, denoting the ownership stack
+next to the function activation record stack of the thread}.
+- The ith machine owns the i/n'th section of the memory, assuming the machines have equal memory. Machines use a two level memory
+allocation scheme, in which they ask for large chunks (e.g. 4Gb) from other nodes in the cluster to make sure we do not exhaust
+the address space that each node owns. This will eliminate the need for a centralized way of keeping track of object allocations.
+Applications can use their own memory allocator over the reserved regions of the shared address space that they have allocated.
+Deallocations return the memory to the owner of the big segment periodically, off the critical path. \TODO{These are tricky.. revisit}
+
+Provide definitions: source/host: current owner, destination/remote: future owner
+
+- source acquires destination's migration lock to initiate the transfer
+    - we use memcached
+\TODO{Do we even need to mention this? Instead: Max K concurrent migrations to the same node are possible, K must be known at init time}
+
+- Migration happens in two separate steps: prepare, and execute. Before execute
+  is called, the owner of the data structure is always the source. Up until then
+  routines at the source are allowed to read and write to the data structure.
+  After a call to prepare, the source is no longer allowed to call into
+  procedures which allocate memory to or deallocate memory from the data structure. Typically all const qualified methods in c++ 
+  are safe to be called after a call to prepare, however not every safe procedure is necessarily const qualified (e.g. updating an element in a vector)
+  At the call to execute, the source is no longer allowed to write to the data structure and yields the ownership. Its reads will also return stale values.
+  We cannot effectively mprotect away all of the memory that the data structure uses. A failed call will result in a SIGSEGV with no general way of
+  recovering from it.
+
+  - It is the responsibility of the application to prevent the program from falling in one of these restricted paths.
+
+
+\TODO{sequence diagram}
+
+- Prefetch step happens in the prepare phase. source walks through the pages one by one, mprotects them to readonly, and
+  sends them to the corresponding addresses over RDMA.
+
+  - This step is optional. If the data structure is under heavy usage and most of the memory is being touched, this
+  will only lengthen the migration process, during which the source cannot allocate/deallocate to the object that is being
+  migrated, without much improvement towards decreasing the handoff time, during which
+  none of the two machines have read or write access to the data structure.
+
+
+** Idea: From the call to execute, until when the source tells the sink about the call and send the
+dirty pages that it needs to pull, we are losing time. What if the source pushes a few of the pages
+based on a parameter that we optimize, to leverage the bandwidth during the idle time?
+ - I think regardless of the size of the data structure, this is a useful approach: If it's big,
+ only a small ratio is dirtied in between the phase changes and if it's small, then well, it's already small.
+ Since we can send 100Gb/s = 100Mb/ms, this is even close to the rate at which we dirty the pages, we win.
+
+\section{Handling failures}
+Migrations effectively allow us to persist a correct state of the data structure: We have a snapshot at migration time
+
+If a node goes away, we don't lose anything because of the point to point
+nature of node communications. Every node knows who has allocated its memory
+and can evict those leases if it desirable. No application fault tolerance
+features provided aside from snapshots at migration time.
