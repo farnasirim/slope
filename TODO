@@ -1,0 +1,24 @@
+Based on the design guidelines paper:
+    Multi queue optimization is useful: Avoid "binding" a fast cpu core to a slow NPU and use multiple qps
+    Can we use their timer trick (client guesses the upper 4 bytes) that they use to get around the 8 byte limitation of the immediate value?
+
+Allocation metadata (what which pages are owned by this object) must also be shipped with the object itself.
+
+Variables that we have to be careful about:
+dev_attrs.max_sge: 30
+dev_attrs.max_sge_rd: 30
+dev_attrs.max_qp_rd_atom: 16
+dev_attrs.max_qp_init_rd_atom: 16
+dev_attrs.max_srq_wr: 32767
+dev_attrs.max_srq_sge: 31
+dev_attrs.max_pkeys: 128
+
+
+
+Make data structure implementations to see what's required/useful
+distributed trie?
+
+Do not compare to the ideal scenario, compare to what's currently possible/doable
+
+Betrfs and their follow ons
+Recursive move
