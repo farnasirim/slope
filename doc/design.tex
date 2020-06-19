@@ -70,7 +70,10 @@ dirty pages that it needs to pull, we are losing time. What if the source pushes
 based on a parameter that we optimize, to leverage the bandwidth during the idle time?
  - I think regardless of the size of the data structure, this is a useful approach: If it's big,
  only a small ratio is dirtied in between the phase changes and if it's small, then well, it's already small.
- Since we can send 100Gb/s = 100Mb/ms, this is even close to the rate at which we dirty the pages, we win.
+ Since we can send 100Gb/s = 100Mb/ms, this is even close to the rate at which we dirty the pages, we win. \TODO{ This is not possible. The target memory is not
+ pinned before we tell them we're going to migrate into that specific part of their memory} \TODO{NO! this is happening after the prefill. The point here is to start the final transfer phase to make the handoff faster, not to make the whole migration process faster, which we don't really care that much about}
+ \TODO{How do we choose which pages to prefill? Can they express interest? Should we first send the mig_ptr
+ object headers to quickly generate the misses?}
 
 \section{Handling failures}
 Migrations effectively allow us to persist a correct state of the data structure: We have a snapshot at migration time
