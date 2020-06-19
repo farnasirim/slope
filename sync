@@ -1,0 +1,2 @@
+#!/bin/bash
+while true ; do x=$(md5sum <(md5sum $(find -maxdepth 1 -type f | sort)) | awk '{ print $1 }'); if [[ $x != $y ]] ; then for machine in 25 26 ; do rsync-git forwarded-mel-$machine:/home/farnasirim/workspace/shared/slope ; done; echo "synced" ; y=$x ; fi; sleep 0.1 ; done
