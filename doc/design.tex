@@ -79,3 +79,10 @@ If a node goes away, we don't lose anything because of the point to point
 nature of node communications. Every node knows who has allocated its memory
 and can evict those leases if it desirable. No application fault tolerance
 features provided aside from snapshots at migration time.
+
+
+\section{Building systems on top of slope}
+Discovery: can be done several ways: one way: lazy forwarding, keeping timestamps
+of the migrations to figure out who knows the most recent information, 
+Arp like protocol, 
+\TODO{Should this be in the evaluation section}
