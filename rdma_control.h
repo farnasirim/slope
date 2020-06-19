@@ -209,6 +209,8 @@ class RdmaControlPlane: public ControlPlane {
     "MIGRATE_IN_PROGRESS_CAS";
   static inline const std::string do_migrate_qps_key_ =
     "do_migrate_qps";
+  static inline const std::string shared_address_qps_key_ =
+    "shared_address_qps";
   static inline const uint64_t do_migrate_wrid_ = 0xd017;
 
   std::string peer_done_key(const std::string&);

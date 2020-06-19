@@ -55,7 +55,8 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
     }
 
     std::map<std::string, std::vector<QpInfo>> all_qps;
-    std::vector<std::string> qp_set_keys = {do_migrate_qps_key_};
+    std::vector<std::string> qp_set_keys = {do_migrate_qps_key_, shared_address_qps_key_ };
+
     for(auto set_name: qp_set_keys) {
       auto qps = fullmesh_qps_[set_name].prepare(self_name_,
           cluster_nodes_, global_pd_, do_migrate_cq_, operating_port_attr_);
