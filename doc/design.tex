@@ -22,6 +22,18 @@ provide the final solution without mentioning my more trivial implementation,
 even if I never implement the better version (for things that are not on
 the critical path of a particular requirement and do not affect benchmarks)?}
 
+\section{Protocol}
+src: migrating n chunks
+snk: send them
+
+src: these are the n addrs
+snk: pinned
+
+src: prefill at address x, y, z, etc.
+snk: got all prefills. Hand over the ownership
+
+snk: locked, clear to read anything you want. x, y, z are dirty, and I'll also fill x for you
+src: read y, z
 
 
 \section{Slope internals}
