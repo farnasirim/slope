@@ -5,6 +5,7 @@
 #include <mutex>
 #include <string>
 #include <arpa/inet.h>
+#include <map>
 
 #include "control.h"
 #include "keyvalue.h"
@@ -28,17 +29,19 @@ struct QpInfo {
   QpInfo() = default;
   QpInfo(short unsigned int host_port_lid,
       unsigned int host_qp_num,
+      const std::string& host_node_id,
       const std::string& remote_end_node_id);
   short unsigned int host_port_lid;
   unsigned int host_qp_num;
+  std::string host_node_id;
   std::string remote_end_node_id;
 };
 
 struct NodeInfo {
   NodeInfo() = default;
-  NodeInfo(std::string node_id, const std::vector<QpInfo>& qps);
+  NodeInfo(std::string node_id, const std::map<std::string, std::vector<QpInfo>>& qps);
   std::string node_id;
-  std::vector<QpInfo> do_migrate_qps;
+  std::map<std::string, std::vector<QpInfo>> qp_sets_;
 };
 
 extern "C" {
@@ -52,6 +55,18 @@ struct DoMigrateChunk {
   size_t sz;
 };
 }
+
+class FullMeshQpSet {
+ public:
+  FullMeshQpSet();
+  std::vector<QpInfo> prepare(const std::string& excl,
+    const std::vector<std::string>& nodes, const IbvAllocPd& pd,
+    const IbvCreateCq& cq, struct ibv_port_attr& port_attrs);
+  void finalize(const std::vector<QpInfo>& remote_qps);
+
+  std::map<std::string, std::shared_ptr<IbvCreateQp>> qps_;
+  std::map<std::string, std::shared_ptr<ibv_qp_init_attr>> qp_attrs_;
+};
 
 class RdmaControlPlane: public ControlPlane {
 
@@ -88,7 +103,7 @@ class RdmaControlPlane: public ControlPlane {
     deb(do_migrate_req_.number_of_chunks);
     size_t peer_index = ntohl(completions[0].imm_data);
     deb(peer_index);
-    ibv_qp *peer_qp = do_migrate_qps_[cluster_nodes_[peer_index]].get()->get();
+    ibv_qp *peer_qp = fullmesh_qps_[do_migrate_qps_key_].qps_[cluster_nodes_[peer_index]].get()->get();
     DoMigrateChunk *chunks_info = new DoMigrateChunk[do_migrate_req_.number_of_chunks];
     auto chunks_info_sz = do_migrate_req_.number_of_chunks * sizeof(DoMigrateChunk);
 
@@ -176,6 +191,13 @@ class RdmaControlPlane: public ControlPlane {
   void init_cluster();
 
   std::map<std::string, NodeInfo> cluster_info_;
+  void prepost_do_migrate_qp(ibv_qp *qp);
+
+  QpInfo find_self_qp(const std::vector<QpInfo>& infos);
+  std::vector<QpInfo> find_self_qps(
+      const std::map<std::string, NodeInfo>& node_infos,
+      const std::string& qp_set_key);
+
 
   void start_migrate_ping_pong(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>& chunks);
@@ -185,11 +207,11 @@ class RdmaControlPlane: public ControlPlane {
 
   static inline const std::string migrate_in_progress_cas_name_ =
     "MIGRATE_IN_PROGRESS_CAS";
+  static inline const std::string do_migrate_qps_key_ =
+    "do_migrate_qps";
   static inline const uint64_t do_migrate_wrid_ = 0xd017;
 
   std::string peer_done_key(const std::string&);
-
-  void to_rts(IbvCreateQp&, QpInfo);
 
   // ************ order is important here *********************
   static inline const std::string ib_device_name_ = "mlx5_1";
@@ -208,19 +230,24 @@ class RdmaControlPlane: public ControlPlane {
   IbvAllocPd global_pd_;
   static inline const int do_migrate_mr_flags_ =
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+  static inline const int shared_address_mr_flags_ =
+      IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
   DoMigrateRequest do_migrate_req_;
   IbvRegMr do_migrate_mr_;
   IbvCreateCq do_migrate_cq_;
+  // TODO: This is incorrect for more than 1 peer. Must have (wr,sge) set per
+  // peer.
   ibv_recv_wr do_migrate_wr_;
   ibv_recv_wr *do_migrate_bad_wr_;
   ibv_sge do_migrate_sge_;
-  std::map<std::string, std::unique_ptr<ibv_qp_init_attr>> do_migrate_qp_attrs;
-  std::map<std::string, std::unique_ptr<IbvCreateQp>> do_migrate_qps_;
+
+  std::map<std::string, FullMeshQpSet> fullmesh_qps_;
   // **********************************************************
 
   // std::vector<std::shared_ptr<
 };
 
+void to_rts(IbvCreateQp&, QpInfo);
 
 void to_json(json& j, const NodeInfo& inf) noexcept;
 void from_json(const json& j, NodeInfo& inf) noexcept;

@@ -55,7 +55,7 @@ void RdmaControlPlane::simple_send() {
   deb(adv_key);
   deb(target_key);
 
-  auto local_qp = QpInfo(operating_port_attr_.lid, qp.get()->qp_num, target_key);
+  auto local_qp = QpInfo(operating_port_attr_.lid, qp.get()->qp_num, adv_key, target_key);
   keyvalue_service_->set(adv_key, json(local_qp).dump());
   std::string result;
   keyvalue_service_->wait_for(target_key , result);
@@ -155,7 +155,7 @@ void RdmaControlPlane::simple_recv() {
   deb(adv_key);
   deb(target_key);
 
-  auto local_qp = QpInfo(operating_port_attr_.lid, qp.get()->qp_num, target_key);
+  auto local_qp = QpInfo(operating_port_attr_.lid, qp.get()->qp_num, adv_key, target_key);
   keyvalue_service_->set(adv_key, json(local_qp).dump());
   std::string result;
   keyvalue_service_->wait_for(target_key , result);

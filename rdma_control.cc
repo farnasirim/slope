@@ -54,34 +54,15 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       init_cluster();
     }
 
-    std::vector<QpInfo> do_migrate_qps_list;
-    for(auto peer_name: cluster_nodes_) {
-      if(peer_name == self_name_) {
-        continue;
-      }
-
-      // TODO extract constants away
-      struct ibv_qp_init_attr qp_init_attr = {};
-      qp_init_attr.send_cq = do_migrate_cq_.get();
-      qp_init_attr.recv_cq = do_migrate_cq_.get();
-      // qp_init_attr.cap.max_send_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr;
-      qp_init_attr.cap.max_send_wr = 1;
-      // qp_init_attr.cap.max_recv_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr);
-      qp_init_attr.cap.max_recv_wr = 1;
-      qp_init_attr.cap.max_send_sge = 1;
-      qp_init_attr.cap.max_recv_sge = 1;
-      // qp_init.cap.max_inline_data = 60;
-      qp_init_attr.qp_type = IBV_QPT_RC;
-      auto attr_ptr = std::make_unique<ibv_qp_init_attr>(qp_init_attr);
-
-      auto qp = std::make_unique<IbvCreateQp>(global_pd_.get(), attr_ptr.get());
-      do_migrate_qps_list.emplace_back(
-          operating_port_attr_.lid, qp.get()->get()->qp_num, peer_name);
-      do_migrate_qps_[peer_name] = std::move(qp);
-      do_migrate_qp_attrs[peer_name] = std::move(attr_ptr);
+    std::map<std::string, std::vector<QpInfo>> all_qps;
+    std::vector<std::string> qp_set_keys = {do_migrate_qps_key_};
+    for(auto set_name: qp_set_keys) {
+      auto qps = fullmesh_qps_[set_name].prepare(self_name_,
+          cluster_nodes_, global_pd_, do_migrate_cq_, operating_port_attr_);
+      all_qps[set_name] = qps;
     }
 
-    NodeInfo my_info(self_name_, do_migrate_qps_list);
+    NodeInfo my_info(self_name_, all_qps);
     deb(json(my_info).dump(4));
     my_info.node_id = self_name_;
 
@@ -93,47 +74,16 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       cluster_info_[peer] = json::parse(peer_info).get<NodeInfo>();
     }
 
-    for(auto& peer_name: cluster_nodes) {
-      if(peer_name == self_name_) {
-        continue;
-      }
-
-      auto this_node_info = cluster_info_[peer_name];
-      QpInfo remote_qp;
-      // < c++20 won't allow default operator == :(
-      for(auto& it: this_node_info.do_migrate_qps) {
-        if(it.remote_end_node_id == self_name_) {
-          remote_qp = it;
-          break;
-        }
-      }
-
-      auto qp = std::move(do_migrate_qps_[peer_name]);
-      to_rts(*(qp.get()), remote_qp);
-      deb(static_cast<int>(qp.get()->get()->state));
-      do_migrate_qps_[peer_name] = std::move(qp);
+    for(auto set_name: qp_set_keys) {
+      auto remote_qps = find_self_qps(cluster_info_, set_name);
+      fullmesh_qps_[set_name].finalize(remote_qps);
     }
 
-    // prepost the do_migrate recv
-    {
-      for(auto& qp_ptr: do_migrate_qps_) {
-        debout("posting recv to do_migrate_qps:");
-        deb(qp_ptr.first);
-        auto qp = qp_ptr.second.get()->get();
-        do_migrate_sge_.lkey = do_migrate_mr_->lkey;
-        do_migrate_sge_.addr = reinterpret_cast<uintptr_t>(do_migrate_mr_->addr);
-        do_migrate_sge_.length = sizeof(do_migrate_req_);
-
-        do_migrate_wr_ = ibv_recv_wr{};
-        do_migrate_bad_wr_ = nullptr;
-        do_migrate_wr_.wr_id = do_migrate_wrid_;
-        do_migrate_wr_.num_sge = 1;
-        do_migrate_wr_.sg_list = &do_migrate_sge_;
-        int ret_post_recv = ibv_post_recv(
-            qp, &do_migrate_wr_, &do_migrate_bad_wr_);
-        assert_p(ret_post_recv == 0, "ibv_post_recv");
-      }
+    for(auto& qp_ptr: fullmesh_qps_[do_migrate_qps_key_].qps_) {
+      auto qp = qp_ptr.second.get()->get();
+      prepost_do_migrate_qp(qp);
     }
+
 
     keyvalue_service_->set(self_name_ + "_DONE", json(my_info).dump());
     for(auto peer: cluster_nodes_) {
@@ -195,7 +145,7 @@ void RdmaControlPlane::attach_dataplane(slope::data::DataPlane::ptr dataplane) {
 void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
     const std::vector<slope::alloc::memory_chunk>& chunks) {
 
-  auto dest_qp = do_migrate_qps_[dest].get()->get();
+  auto dest_qp = fullmesh_qps_[do_migrate_qps_key_].qps_[dest].get()->get();
 
   {
     do_migrate_req_.number_of_chunks = chunks.size();
@@ -245,42 +195,104 @@ bool RdmaControlPlane::init_kvservice() {
 }
 
 NodeInfo::NodeInfo(std::string node_id_v,
-    const std::vector<QpInfo>& do_migrate_qps_v):
-  node_id(node_id_v), do_migrate_qps(do_migrate_qps_v) { }
+    const std::map<std::string, std::vector<QpInfo>>& qp_sets):
+  node_id(node_id_v), qp_sets_(qp_sets) { }
 
 void to_json(json& j, const NodeInfo& inf) noexcept {
   j = json{
     {"node_id", inf.node_id},
-    {"do_migrate_qps", json(inf.do_migrate_qps)}
+    {"qp_sets", json(inf.qp_sets_)}
   };
 }
 
 void from_json(const json& j, NodeInfo& inf) noexcept {
   j.at("node_id").get_to(inf.node_id);
-  j.at("do_migrate_qps").get_to(inf.do_migrate_qps);
+  j.at("qp_sets").get_to(inf.qp_sets_);
 }
 
 QpInfo::QpInfo(short unsigned int host_port_lid_v, unsigned int host_qp_num_v,
-    const std::string& remote_end_node_id_v):
+    const std::string& host_node_id_v, const std::string& remote_end_node_id_v):
   host_port_lid(host_port_lid_v),
   host_qp_num(host_qp_num_v),
+  host_node_id(host_node_id_v),
   remote_end_node_id(remote_end_node_id_v) { }
 
 void to_json(json& j, const QpInfo& inf) noexcept {
   j = json{
     {"host_port_lid", inf.host_port_lid},
     {"host_qp_num", inf.host_qp_num},
-    {"remote_end_node_id", inf.remote_end_node_id}
+    {"remote_end_node_id", inf.remote_end_node_id},
+    {"host_node_id", inf.host_node_id}
   };
 }
 
 void from_json(const json& j, QpInfo& inf) noexcept {
   j.at("host_port_lid").get_to(inf.host_port_lid);
   j.at("host_qp_num").get_to(inf.host_qp_num);
+  j.at("host_node_id").get_to(inf.host_node_id);
   j.at("remote_end_node_id").get_to(inf.remote_end_node_id);
 }
 
-void RdmaControlPlane::to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
+QpInfo RdmaControlPlane::find_self_qp(const std::vector<QpInfo>& infos) {
+  for(const auto& it: infos) {
+    if(it.remote_end_node_id == self_name_) {
+      return it;
+    }
+  }
+  assert(false);
+}
+
+std::vector<QpInfo> RdmaControlPlane::find_self_qps(const std::map<std::string, NodeInfo>& node_infos,
+    const std::string& qp_set_key) {
+  std::vector<QpInfo> ret;
+  for(const auto& it: node_infos) {
+    if(it.first != self_name_) {
+      ret.push_back(find_self_qp(it.second.qp_sets_.find(qp_set_key)->second));
+    }
+  }
+  return ret;
+}
+
+FullMeshQpSet::FullMeshQpSet() {
+
+}
+
+std::vector<QpInfo> FullMeshQpSet::prepare(const std::string& self_name,
+    const std::vector<std::string>& nodes, const IbvAllocPd& pd,
+    const IbvCreateCq& cq,
+    struct ibv_port_attr& port_attrs) {
+
+  std::vector<QpInfo> ret;
+
+  for(auto peer_name: nodes) {
+    if(self_name == peer_name) {
+      continue;
+    }
+
+    // TODO extract constants away
+    struct ibv_qp_init_attr qp_init_attr = {};
+    qp_init_attr.send_cq = cq.get();
+    qp_init_attr.recv_cq = cq.get();
+    // qp_init_attr.cap.max_send_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr;
+    qp_init_attr.cap.max_send_wr = 1;
+    // qp_init_attr.cap.max_recv_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr);
+    qp_init_attr.cap.max_recv_wr = 1;
+    qp_init_attr.cap.max_send_sge = 1;
+    qp_init_attr.cap.max_recv_sge = 1;
+    // qp_init.cap.max_inline_data = 60;
+    qp_init_attr.qp_type = IBV_QPT_RC;
+    auto attr_ptr = std::make_unique<ibv_qp_init_attr>(qp_init_attr);
+
+    auto qp = std::make_unique<IbvCreateQp>(pd.get(), attr_ptr.get());
+    ret.emplace_back(
+        port_attrs.lid, qp.get()->get()->qp_num, self_name,peer_name);
+    qps_[peer_name] = std::move(qp);
+    qp_attrs_[peer_name] = std::move(attr_ptr);
+  }
+
+  return ret;
+}
+void to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
   {
     int ret = qp_attr::modify_qp(qp,
      qp_attr::qp_state(IBV_QPS_INIT),
@@ -330,6 +342,31 @@ void RdmaControlPlane::to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
       );
 
     assert_p(ret == 0, "rts");
+  }
+}
+
+void RdmaControlPlane::prepost_do_migrate_qp(ibv_qp *qp) {
+  do_migrate_sge_.lkey = do_migrate_mr_->lkey;
+  do_migrate_sge_.addr = reinterpret_cast<uintptr_t>(do_migrate_mr_->addr);
+  do_migrate_sge_.length = sizeof(do_migrate_req_);
+
+  do_migrate_wr_ = ibv_recv_wr{};
+  do_migrate_bad_wr_ = nullptr;
+  do_migrate_wr_.wr_id = do_migrate_wrid_;
+  do_migrate_wr_.num_sge = 1;
+  do_migrate_wr_.sg_list = &do_migrate_sge_;
+  int ret_post_recv = ibv_post_recv(
+      qp, &do_migrate_wr_, &do_migrate_bad_wr_);
+  assert_p(ret_post_recv == 0, "ibv_post_recv");
+}
+
+void FullMeshQpSet::finalize(const std::vector<QpInfo>& remote_qps) {
+  for(auto& remote_qp: remote_qps) {
+    auto peer_name = remote_qp.host_node_id;
+    auto qp = std::move(qps_[peer_name]);
+    to_rts(*(qp.get()), remote_qp);
+    deb(static_cast<int>(qp.get()->get()->state));
+    qps_[peer_name] = std::move(qp);
   }
 }
 
