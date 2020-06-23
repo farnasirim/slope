@@ -22,3 +22,28 @@ Do not compare to the ideal scenario, compare to what's currently possible/doabl
 
 Betrfs and their follow ons
 Recursive move
+
+
+Compare with the current state and how we do things currently
+for small sizes of objects, our granularity is too large
+    what is the APi for developers
+    reimplement an existing system with this and show what's better
+    what do distributed applications do -> what are the existing solutions
+    -> why they don't work
+    refer to ramp explicitly since we're building on them
+    write bullet points
+
+
+Can actor model be an application?
+Computation sharding to go with data sharding
+Anything can be passed along and shuffled like a hadoop
+    key, value
+
+If an application wants to do things with a remote machine,
+And if we can do things fast enough and there is a gain in
+latency/overal time,
+we can ship the computation there, do that specific part
+(e.g. talking to a tcp service will be faster through the
+loopback without leaving the kernel, or simpler yet, reading
+from local disk in a hadoop like computation model that is
+much more flexible)
