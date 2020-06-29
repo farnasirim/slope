@@ -18,6 +18,8 @@ class ControlPlane {
 
   virtual const std::string self_name() = 0;
   virtual const std::vector<std::string> cluster_nodes() = 0;
+
+  virtual ~ControlPlane() = default;
 };
 
 }  // namespace control

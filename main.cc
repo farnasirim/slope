@@ -21,6 +21,7 @@
 #include "slope.h"
 #include "allocator.h"
 #include "discovery.h"
+#include "stat.h"
 
 #include "rdma_control.h"
 #include "memcached_kv.h"
@@ -33,6 +34,10 @@ struct payload {
   int code;
   char msg[20];
 };
+
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 
 int main(int argc, char **argv) {
@@ -83,6 +88,11 @@ int main(int argc, char **argv) {
     std::unique_ptr<slope::control::RdmaControlPlane> control_plane = nullptr;
 
     {
+      std::make_unique<slope::control::RdmaControlPlane>(self_id, peers,
+          std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
+              std::make_unique<slope::keyvalue::Memcached>(argv[2]), "SLOPE_TIMECALIB_")
+          , 1);
+
       char hostname[4096];
       if(!gethostname(hostname, sizeof(hostname)) &&
           std::string(hostname).find("mel") == 0) {
@@ -92,6 +102,7 @@ int main(int argc, char **argv) {
     }
 
     testdrive_migrate(std::move(control_plane));
+    std::cout << slope::stat::get_all_logs().dump(4) << std::endl;
     return 0;
   }
 

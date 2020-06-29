@@ -5,10 +5,15 @@
 #include <thread>
 #include <cstdlib>
 #include <malloc.h>
+#include <iomanip>
+#include <sstream>
 
 #include "mig.h"
 #include "data.h"
 #include "discovery.h"
+#include "cluster_time.h"
+
+#include "stat.h"
 
 #include "json.hpp"
 
@@ -28,7 +33,7 @@ const std::vector<std::string> RdmaControlPlane::cluster_nodes() {
 
 RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       const std::vector<std::string>& cluster_nodes,
-      slope::keyvalue::KeyValueService::ptr keyvalue_service):
+      slope::keyvalue::KeyValueService::ptr keyvalue_service, int calibrate_time):
   self_name_(self_name),
   cluster_nodes_(cluster_nodes),
   keyvalue_service_(std::move(keyvalue_service)),
@@ -41,6 +46,8 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
   do_migrate_mr_(global_pd_.get(), &do_migrate_req_, sizeof(do_migrate_req_),
       do_migrate_mr_flags_),
   do_migrate_cq_(ib_context_.get(), dev_attrs_.max_cqe, static_cast<void *>(NULL),
+                 static_cast<struct ibv_comp_channel *>(NULL), 0),
+  time_calib_cq_(ib_context_.get(), dev_attrs_.max_cqe, static_cast<void *>(NULL),
                  static_cast<struct ibv_comp_channel *>(NULL), 0)
 {
     std::sort(cluster_nodes_.begin(), cluster_nodes_.end());
@@ -49,22 +56,28 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
           cluster_nodes_.begin()
           );
 
-    if(self_name_ ==
-        *min_element(cluster_nodes_.cbegin(), cluster_nodes_.cend())) {
+    if(is_leader()) {
       init_cluster();
     }
 
     std::map<std::string, std::vector<QpInfo>> all_qps;
-    std::vector<std::string> qp_set_keys = {do_migrate_qps_key_, shared_address_qps_key_ };
+    std::vector<std::string> qp_set_keys = {
+      do_migrate_qps_key_,
+      shared_address_qps_key_,
+    };
+    if(calibrate_time) {
+      qp_set_keys.push_back(time_calib_qps_key_);
+    }
 
     for(auto set_name: qp_set_keys) {
+      fullmesh_qps_.try_emplace(set_name, get_cq(set_name));
       auto qps = fullmesh_qps_[set_name].prepare(self_name_,
-          cluster_nodes_, global_pd_, do_migrate_cq_, operating_port_attr_);
+          cluster_nodes_, global_pd_, operating_port_attr_);
       all_qps[set_name] = qps;
     }
 
     NodeInfo my_info(self_name_, all_qps);
-    deb(json(my_info).dump(4));
+    // deb(json(my_info).dump(4));
     my_info.node_id = self_name_;
 
     keyvalue_service_->set(self_name_, json(my_info).dump());
@@ -85,13 +98,19 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
       prepost_do_migrate_qp(qp);
     }
 
+    if(calibrate_time && !is_leader()) {
+      post_calibrate_time(get_leader());
+    }
 
     keyvalue_service_->set(self_name_ + "_DONE", json(my_info).dump());
     for(auto peer: cluster_nodes_) {
       std::string _;
       auto peer_result = keyvalue_service_->wait_for(peer_done_key(peer), _);
     }
-    debout("All qps up");
+
+    if(calibrate_time) {
+      do_calibrate_time();
+    }
 }
 
 void RdmaControlPlane::init_cluster() {
@@ -147,6 +166,7 @@ void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
     const std::vector<slope::alloc::memory_chunk>& chunks) {
 
   auto dest_qp = fullmesh_qps_[do_migrate_qps_key_].qps_[dest].get()->get();
+  auto& cq = fullmesh_qps_[do_migrate_qps_key_].cq_;
 
   {
     do_migrate_req_.number_of_chunks = chunks.size();
@@ -170,13 +190,14 @@ void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
     assert_p(ret_post_send == 0, "ibv_post_send");
     struct ibv_wc completions[1];
     while(true) {
-      int ret = ibv_poll_cq(do_migrate_cq_.get(), 1, completions);
+      int ret = ibv_poll_cq(cq.get(), 1, completions);
       if(ret > 0) {
         assert_p(completions[0].status == 0, "ibv_poll_cq");
         break;
       }
     }
   }
+
   // DoMigrateChunk *chunks_info = new DoMigrateChunk[chunks.size()];
   // size_t current_chunk = 0;
   // for(auto& it: chunks) {
@@ -254,13 +275,23 @@ std::vector<QpInfo> RdmaControlPlane::find_self_qps(const std::map<std::string, 
   return ret;
 }
 
-FullMeshQpSet::FullMeshQpSet() {
+IbvCreateCq& RdmaControlPlane::get_cq(const std::string& str) {
+  if(str == time_calib_qps_key_) {
+    return time_calib_cq_;
+  }
+  return do_migrate_cq_;
+}
+
+FullMeshQpSet::FullMeshQpSet(): cq_(*std::unique_ptr<IbvCreateCq>(nullptr)) {
+  assert(false); // map subscript access need this defined, but it should
+  // never run
+}
+FullMeshQpSet::FullMeshQpSet(const IbvCreateCq& cq): cq_(cq) {
 
 }
 
 std::vector<QpInfo> FullMeshQpSet::prepare(const std::string& self_name,
     const std::vector<std::string>& nodes, const IbvAllocPd& pd,
-    const IbvCreateCq& cq,
     struct ibv_port_attr& port_attrs) {
 
   std::vector<QpInfo> ret;
@@ -272,14 +303,14 @@ std::vector<QpInfo> FullMeshQpSet::prepare(const std::string& self_name,
 
     // TODO extract constants away
     struct ibv_qp_init_attr qp_init_attr = {};
-    qp_init_attr.send_cq = cq.get();
-    qp_init_attr.recv_cq = cq.get();
+    qp_init_attr.send_cq = cq_.get();
+    qp_init_attr.recv_cq = cq_.get();
     // qp_init_attr.cap.max_send_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr;
-    qp_init_attr.cap.max_send_wr = 1;
+    qp_init_attr.cap.max_send_wr = 1024;
     // qp_init_attr.cap.max_recv_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr);
-    qp_init_attr.cap.max_recv_wr = 1;
-    qp_init_attr.cap.max_send_sge = 1;
-    qp_init_attr.cap.max_recv_sge = 1;
+    qp_init_attr.cap.max_recv_wr = 1024;
+    qp_init_attr.cap.max_send_sge = 20;
+    qp_init_attr.cap.max_recv_sge = 20;
     // qp_init.cap.max_inline_data = 60;
     qp_init_attr.qp_type = IBV_QPT_RC;
     auto attr_ptr = std::make_unique<ibv_qp_init_attr>(qp_init_attr);
@@ -304,7 +335,6 @@ void to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
        | IBV_ACCESS_REMOTE_ATOMIC)
      );
 
-    perror("init");
     assert_p(ret == 0, "init");
   }
 
@@ -330,8 +360,6 @@ void to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
   }
 
   {
-    std::cout << "doing rts" << std::endl;
-
     int ret = modify_qp(qp,
         qp_attr::qp_state(IBV_QPS_RTS),
         qp_attr::max_rd_atomic(1),
@@ -366,10 +394,158 @@ void FullMeshQpSet::finalize(const std::vector<QpInfo>& remote_qps) {
     auto peer_name = remote_qp.host_node_id;
     auto qp = std::move(qps_[peer_name]);
     to_rts(*(qp.get()), remote_qp);
-    deb(static_cast<int>(qp.get()->get()->state));
     qps_[peer_name] = std::move(qp);
   }
 }
+
+std::string RdmaControlPlane::get_leader() {
+  return *min_element(cluster_nodes_.begin(), cluster_nodes_.end());
+}
+
+bool RdmaControlPlane::is_leader() {
+  return self_name_ == get_leader();
+}
+
+bool RdmaControlPlane::is_leader(const std::string& name) {
+  return name == get_leader();
+}
+
+void RdmaControlPlane::post_calibrate_time(const std::string& remote_node) {
+  ibv_recv_wr calibrate_time_wr_ = {};
+  ibv_recv_wr *calibrate_time_bad_wr_ = nullptr;
+  calibrate_time_wr_.wr_id = calibrate_time_wrid_;
+  calibrate_time_wr_.num_sge = 0;
+  calibrate_time_wr_.sg_list = nullptr;
+  int ret_post_recv = ibv_post_recv(
+      fullmesh_qps_[time_calib_qps_key_].qps_[remote_node].get()->get(),
+      &calibrate_time_wr_, &calibrate_time_bad_wr_);
+  assert_p(ret_post_recv == 0, "ibv_post_recv");
+}
+
+void RdmaControlPlane::do_calibrate_time_leader() {
+  slope::time::calibrated_local_start_time =
+    std::chrono::high_resolution_clock::now();
+  // deb(time_point_to_string(slope::time::calibrated_local_start_time));
+  // deb(time_point_to_string(slope::time::calibrated_local_start_time));
+  for(auto dest: cluster_nodes_) {
+    if(is_leader(dest)) {
+      continue;
+    }
+    int current_node_rtt_micros = 0;
+    for(int i = 0; i < time_calib_rounds_; i++) {
+      auto dest_qp = fullmesh_qps_[time_calib_qps_key_].qps_[dest].get()->get();
+      auto& cq = fullmesh_qps_[time_calib_qps_key_].cq_;
+
+      struct ibv_send_wr *bad_wr;
+      struct ibv_send_wr this_wr = {};
+      this_wr.wr_id = calibrate_time_wrid_;
+      this_wr.num_sge = 0;
+      this_wr.sg_list = NULL;
+      this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+      this_wr.send_flags = IBV_SEND_SIGNALED;
+      auto current_node_offset_micros =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() -
+            slope::time::calibrated_local_start_time
+            ).count();
+      this_wr.imm_data = htonl(current_node_rtt_micros/2 +
+          current_node_offset_micros);
+
+      post_calibrate_time(dest);
+
+      auto then = std::chrono::high_resolution_clock::now();
+      int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
+      assert_p(ret_post_send == 0, "ibv_post_send");
+      while(true) {
+        struct ibv_wc completions[1];
+        int ret = ibv_poll_cq(cq.get(), 1, completions);
+        if(ret > 0) {
+          assert_p(completions[0].status == 0, "ibv_poll_cq");
+          break;
+        }
+      }
+
+      while(true) {
+        struct ibv_wc completions[1];
+        int ret = ibv_poll_cq(cq.get(), 1, completions);
+        if(ret > 0) {
+          assert_p(completions[0].status == 0, "ibv_poll_cq");
+          break;
+        }
+      }
+      current_node_rtt_micros = std::chrono::duration_cast<
+        std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - then).count();
+    }
+  }
+}
+
+void RdmaControlPlane::do_calibrate_time_follower() {
+  auto leader_qp = fullmesh_qps_[time_calib_qps_key_].qps_[get_leader()].get()->get();
+  auto& cq = fullmesh_qps_[time_calib_qps_key_].cq_;
+  std::vector<std::chrono::high_resolution_clock::time_point> time_points;
+  for(int i = 0; i < time_calib_rounds_; i++) {
+    post_calibrate_time(get_leader());
+    while(true) {
+      struct ibv_wc completions[1];
+      int ret = ibv_poll_cq(cq.get(), 1, completions);
+      if(ret > 0) {
+        time_points.push_back(
+          std::chrono::high_resolution_clock::now() -
+            std::chrono::microseconds(ntohl(completions[0].imm_data))
+            );
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        break;
+      }
+    }
+
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
+    this_wr.wr_id = calibrate_time_wrid_;
+    this_wr.num_sge = 0;
+    this_wr.sg_list = NULL;
+    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.imm_data = htonl(self_index_);
+    int ret_post_send = ibv_post_send(leader_qp, &this_wr, &bad_wr);
+
+    while(true) {
+      struct ibv_wc completions[1];
+      int ret = ibv_poll_cq(cq.get(), 1, completions);
+      if(ret > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        break;
+      }
+    }
+  }
+  int selected_ind = time_points.size()/2;
+  std::nth_element(time_points.begin(),
+      time_points.begin() + selected_ind,
+      time_points.end());
+  slope::time::calibrated_local_start_time =
+    *(time_points.begin() + selected_ind);
+}
+
+std::string time_point_to_string(
+    const std::chrono::high_resolution_clock::time_point& tp) {
+  auto now_tm = std::chrono::high_resolution_clock::to_time_t(tp);
+  std::stringstream ss;
+  ss << std::put_time(std::localtime(&now_tm), "%F %T");
+
+  return ss.str();
+}
+
+void RdmaControlPlane::do_calibrate_time() {
+  if(is_leader()) {
+    do_calibrate_time_leader();
+  } else {
+    do_calibrate_time_follower();
+  }
+
+  slope::stat::add_value(slope::stat::key::operation,
+      slope::stat::value::done_time_calibrate);
+}
+
 
 }  // namespace control
 }  // namespace slope

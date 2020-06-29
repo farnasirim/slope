@@ -56,30 +56,29 @@ void testdrive_migrate(slope::control::RdmaControlPlane::ptr control_plane) {
     out << std::showbase << std::internal << std::setfill('0')
         << " @" << std::hex << std::setw(16) << it.first;
     out << " " << it.second;
-    debout(out.str());
-  }
+    debout(out.str()); }
 
   debout("start the migration");
   deb(control_plane->cluster_nodes());
   if(control_plane->self_name() == control_plane->cluster_nodes().front()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     // control_plane->simple_send();
-    control_plane->do_migrate(
-        control_plane->cluster_nodes()[1], ptr.get_pages()
-        );
+    // control_plane->do_migrate(
+    //     control_plane->cluster_nodes()[1], ptr.get_pages()
+    //     );
   } else {
     // control_plane->simple_recv();
-    while(true) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      auto got_migration = control_plane->poll_migrate<mig_vector<int>>();
-      if(got_migration.get() != nullptr) {
-        break;
-      }
-      // if(got_migration.get() != nullptr) {
-      //   break;
-      // }
-    }
-    debout("done");
+    // while(true) {
+    //   std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    //   auto got_migration = control_plane->poll_migrate<mig_vector<int>>();
+    //   if(got_migration.get() != nullptr) {
+    //     break;
+    //   }
+    //   // if(got_migration.get() != nullptr) {
+    //   //   break;
+    //   // }
+    // }
+    // debout("done");
   }
 
 }

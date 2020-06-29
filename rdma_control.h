@@ -59,11 +59,13 @@ struct DoMigrateChunk {
 class FullMeshQpSet {
  public:
   FullMeshQpSet();
+  FullMeshQpSet(const IbvCreateCq& cq);
   std::vector<QpInfo> prepare(const std::string& excl,
     const std::vector<std::string>& nodes, const IbvAllocPd& pd,
-    const IbvCreateCq& cq, struct ibv_port_attr& port_attrs);
+    struct ibv_port_attr& port_attrs);
   void finalize(const std::vector<QpInfo>& remote_qps);
 
+  const IbvCreateCq& cq_;
   std::map<std::string, std::shared_ptr<IbvCreateQp>> qps_;
   std::map<std::string, std::shared_ptr<ibv_qp_init_attr>> qp_attrs_;
 };
@@ -79,6 +81,8 @@ class RdmaControlPlane: public ControlPlane {
   virtual bool do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>&) final override;
 
+  // void calibrate_time();
+
   template<typename T>
   bool do_migrate(const std::string& dest, const mig_ptr<T>& p) {
     return do_migrate(dest, p->get_pages());
@@ -86,7 +90,18 @@ class RdmaControlPlane: public ControlPlane {
 
   RdmaControlPlane(const std::string& self_name,
       const std::vector<std::string>& cluster_nodes,
-      slope::keyvalue::KeyValueService::ptr keyvalue_service);
+      slope::keyvalue::KeyValueService::ptr keyvalue_service,
+      int calibrate_time=0);
+
+  bool is_leader();
+  bool is_leader(const std::string& name);
+  std::string get_leader();
+  void post_calibrate_time(const std::string&);
+  void do_calibrate_time();
+  void do_calibrate_time_leader();
+  void do_calibrate_time_follower();
+
+  IbvCreateCq& get_cq(const std::string& str);
 
   template<typename T>
   mig_ptr<T> poll_migrate() {
@@ -211,7 +226,11 @@ class RdmaControlPlane: public ControlPlane {
     "do_migrate_qps";
   static inline const std::string shared_address_qps_key_ =
     "shared_address_qps";
+  static inline const std::string time_calib_qps_key_ =
+    "time_calib_qps";
+  static inline const int time_calib_rounds_ = 10;
   static inline const uint64_t do_migrate_wrid_ = 0xd017;
+  static inline const uint64_t calibrate_time_wrid_ = 0xd018;
 
   std::string peer_done_key(const std::string&);
 
@@ -237,6 +256,7 @@ class RdmaControlPlane: public ControlPlane {
   DoMigrateRequest do_migrate_req_;
   IbvRegMr do_migrate_mr_;
   IbvCreateCq do_migrate_cq_;
+  IbvCreateCq time_calib_cq_;
   // TODO: This is incorrect for more than 1 peer. Must have (wr,sge) set per
   // peer.
   ibv_recv_wr do_migrate_wr_;
@@ -255,6 +275,8 @@ void to_json(json& j, const NodeInfo& inf) noexcept;
 void from_json(const json& j, NodeInfo& inf) noexcept;
 void to_json(json& j, const QpInfo& inf) noexcept;
 void from_json(const json& j, QpInfo& inf) noexcept;
+
+std::string time_point_to_string(const std::chrono::high_resolution_clock::time_point&);
 
 }  // namespace control
 }  // namespace slope
