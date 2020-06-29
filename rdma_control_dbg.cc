@@ -5,6 +5,7 @@
 #include <thread>
 #include <cstdlib>
 #include <malloc.h>
+#include <chrono>
 
 #include "mig.h"
 #include "data.h"
@@ -23,7 +24,7 @@ void RdmaControlPlane::simple_send() {
   size_t amount_data_bytes_to_req = 100; // 10GB
   size_t to_alloc = amount_data_bytes_to_req + 10;
   char *mem = static_cast<char *>(memalign(4096, to_alloc));
-  int *p = reinterpret_cast<decltype(p)>(mem);
+  size_t *p = reinterpret_cast<decltype(p)>(mem);
   int flags =
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 
@@ -80,7 +81,7 @@ void RdmaControlPlane::simple_send() {
     std::cout << " ------------ in " << std::endl;
     // server
     // tell start
-    *p = msg_size_to_req;
+    *p = 123123123123123123;
 
     {
     struct ibv_sge sge = {};
@@ -99,10 +100,10 @@ void RdmaControlPlane::simple_send() {
     this_wr.imm_data = htonl(912999);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    auto bef1 = std::chrono::high_resolution_clock::now();
     int ret_post_send = ibv_post_send(qp, &this_wr, &bad_wr);
     assert_p(ret_post_send >= 0, "polling");
     deb(*p);
-    }
 
     struct ibv_wc completions[num_concurr];
     while(true) {
@@ -112,6 +113,9 @@ void RdmaControlPlane::simple_send() {
         then = std::chrono::system_clock::now();
         break;
       }
+    }
+    auto aft1 = std::chrono::high_resolution_clock::now();
+    deb(std::chrono::duration<double>(aft1 - bef1).count());
     }
 }
 
@@ -123,7 +127,7 @@ void RdmaControlPlane::simple_recv() {
   size_t amount_data_bytes_to_req = 100; // 10GB
   size_t to_alloc = amount_data_bytes_to_req + 10;
   char *mem = static_cast<char *>(memalign(4096, to_alloc));
-  int *p = reinterpret_cast<decltype(p)>(mem);
+  size_t *p = reinterpret_cast<decltype(p)>(mem);
   int flags =
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
 
@@ -169,6 +173,7 @@ void RdmaControlPlane::simple_recv() {
 
   // constexpr auto cc = f(at, 2);
 
+  {
   char *payload = static_cast<char *>(mem) + 10;
   assert_p(payload != NULL, "payload alloc");
 
@@ -206,7 +211,7 @@ void RdmaControlPlane::simple_recv() {
   }
   deb(*p);
   auto last_addr = payload;
-
+  }
 }
 
 }  // namespace control
