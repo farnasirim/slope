@@ -41,8 +41,8 @@ void testdrive_migrate(slope::control::RdmaControlPlane::ptr control_plane) {
 
 
   debout("creating iterators");
-  auto itt = ptr.get()->begin();
-  auto bc = std::back_inserter(*ptr.get());
+  // auto itt = ptr.get()->begin();
+  // auto bc = std::back_inserter(*ptr.get());
   debout("done creating iterators");
 
   std::vector<int> v(20, 123);

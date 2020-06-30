@@ -105,7 +105,7 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
     keyvalue_service_->set(self_name_ + "_DONE", json(my_info).dump());
     for(auto peer: cluster_nodes_) {
       std::string _;
-      auto peer_result = keyvalue_service_->wait_for(peer_done_key(peer), _);
+      assert(keyvalue_service_->wait_for(peer_done_key(peer), _));
     }
 
     if(calibrate_time) {
@@ -186,7 +186,6 @@ void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
     this_wr.imm_data = htonl(self_index_);
 
     int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
-    deb(ret_post_send);
     assert_p(ret_post_send == 0, "ibv_post_send");
     struct ibv_wc completions[1];
     while(true) {
@@ -282,7 +281,10 @@ IbvCreateCq& RdmaControlPlane::get_cq(const std::string& str) {
   return do_migrate_cq_;
 }
 
-FullMeshQpSet::FullMeshQpSet(): cq_(*std::unique_ptr<IbvCreateCq>(nullptr)) {
+namespace impl {
+static std::unique_ptr<IbvCreateCq> slope_tmp_(nullptr);
+}  // namespace impl
+FullMeshQpSet::FullMeshQpSet(): cq_(*impl::slope_tmp_) {
   assert(false); // map subscript access need this defined, but it should
   // never run
 }
@@ -366,8 +368,8 @@ void to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
         qp_attr::retry_cnt(7),
         qp_attr::rnr_retry(7),
         qp_attr::sq_psn(0),
-        qp_attr::timeout(0x12),
-        qp_attr::max_rd_atomic(1)
+        qp_attr::timeout(14),
+        qp_attr::max_rd_atomic(16)
       );
 
     assert_p(ret == 0, "rts");
@@ -508,6 +510,7 @@ void RdmaControlPlane::do_calibrate_time_follower() {
     this_wr.send_flags = IBV_SEND_SIGNALED;
     this_wr.imm_data = htonl(self_index_);
     int ret_post_send = ibv_post_send(leader_qp, &this_wr, &bad_wr);
+    assert_p(ret_post_send == 0, "ibv_post_send");
 
     while(true) {
       struct ibv_wc completions[1];

@@ -74,8 +74,6 @@ void RdmaControlPlane::simple_send() {
   std::chrono::system_clock::time_point then;
 
 
-    size_t msg_size_to_req = 100;
-    size_t num_messages_to_request = amount_data_bytes_to_req / msg_size_to_req;
     const size_t num_concurr = 1;
 
     std::cout << " ------------ in " << std::endl;
@@ -210,7 +208,6 @@ void RdmaControlPlane::simple_recv() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   deb(*p);
-  auto last_addr = payload;
   }
 }
 
