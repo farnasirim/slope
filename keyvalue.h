@@ -15,6 +15,7 @@ class KeyValueService {
   virtual bool get(const std::string& key, std::string& ret) = 0;
   virtual bool wait_for(const std::string& key, std::string& ret) = 0;
 
+  virtual ~KeyValueService() = default;
   using ptr = std::unique_ptr<KeyValueService>;
 };
 
@@ -29,6 +30,7 @@ class KeyValuePrefixMiddleware: public KeyValueService {
   virtual bool get(const std::string& key, std::string& ret) final override;
   virtual bool wait_for(const std::string& key, std::string& ret) final override;
   using ptr = std::unique_ptr<KeyValueService>;
+
  private:
   std::unique_ptr<KeyValueService> impl_;
   const std::string prefix_;
