@@ -9,24 +9,25 @@ CXX_DEPS := $(patsubst %.cc,%.d,$(CXX_SRCS))
 CXX_INCLUDE := -I. -I/extra-pkg/boost-1-72/include
 CXX_WARNINGS=-pedantic -Wall -Wextra -Wcast-align -Wcast-qual \
 	-Wctor-dtor-privacy -Wdisabled-optimization -Wformat=2 -Winit-self \
-	-Wlogical-op -Wmissing-declarations -Wnoexcept \
+	-Wmissing-declarations \
 	-Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wshadow \
-	-Wsign-conversion -Wsign-promo -Wstrict-null-sentinel \
+	-Wsign-conversion -Wsign-promo \
 	-Wstrict-overflow=2 -Wswitch-default -Wundef -Werror -Wno-unused \
 	-Wall -Wextra -Wformat-nonliteral -Wcast-align -Wpointer-arith \
 	-Wmissing-declarations -Winline -Wundef -Wcast-qual \
 	-Wshadow -Wwrite-strings -Wno-unused-parameter -Wfloat-equal \
 	-pedantic
 
-CXX_FLAGS := -std=c++17 -pthread -lrdmacm -libverbs -lmemcached
+
+CXX_FLAGS := -std=c++17
 # CXX_FLAGS += -O3
-CXX_FLAGS += -DSLOPE_DEBUG -g3 -Wl,-rpath=/extra-pkg/boost-1-72/lib -L/extra-pkg/boost-1-72/lib -lboost_system
+CXX_FLAGS += -DSLOPE_DEBUG -g3
 
 %.o: %.cc $(CXX_HEADERS) Makefile
-	g++ $(CXX_FLAGS) $(CXX_WARNINGS) $(CXX_INCLUDE) -MMD -MP -c -o $@ $<
+	$(CXX) $(CXX_FLAGS) $(CXX_WARNINGS) $(CXX_INCLUDE) -MMD -MP -c -o $@ $<
 
 slope: $(CXX_OBJS)
-	g++ $(CXX_FLAGS) $(CXX_INCLUDE) -o $@ $^
+	$(CXX) $(CXX_FLAGS) $(CXX_INCLUDE) -Wl,-rpath=/extra-pkg/boost-1-72/lib -L/extra-pkg/boost-1-72/lib -lboost_system -pthread -lrdmacm -libverbs -lmemcached -o $@ $^
 
 all: slope
 
