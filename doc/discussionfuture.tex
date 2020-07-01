@@ -10,8 +10,12 @@ adaptive data placement (derecho?)
 designing data structrues with migration in mind: "sub-trees" or independent
 components usable separately
 
+allocation: can be done with atomics, since they'll have little contention
+
 
 \section{Conclusion}
 What we did, what it does, \cite{kalia2016fasst} what it doesn't do. What are the things that our
 proof of concept proves?
 
+An async Slope API: This will be RDMA not just for cold, raw data, but RDMA for
+objects.

@@ -1,11 +1,72 @@
 \chapter{Design of Slope}
 \label{chap:design}
 
+
 \section{Design goals}
-- pluggable
+
+Slope aims to provide a migration mechanism to applications to allow them to
+seamlessly move their data structures, and as a result, their corresponding
+operations, across their instances.
+
+The most important design goal of Slope is being pluggable in existing
+applications which work with their data in a partitionable way. That means if
+the system designer has already came up with a way to partition
+application data and computation into units that can be run independently on a
+single machine, the task of integrating Slope into the system to make its data
+structures or more complex computation units migratable should be trivial.
+
+To be more specific, we aim for zero modification to the internals of the
+application and minimal addition to the API of the computation unit to
+correctly define its behavior during its life cycle in Slope.
+
+The migration delay which we define as the elapsed time since the start of the
+migration of an object until it is successfully migrated is an important
+performance metric in Slope. However, directly measuring this duration may fail
+in reflecting how the migration process impacts the application. Some
+applications may prioritize responsiveness and would trade off some of their
+throughput during the migration process to keep their tail latencies low.
+Similarly an application may choose the opposite or any scenario in the middle.
+Therefore it makes more sense to define migration performance from the view
+point of the application based on how \emph{its} performance metrics degrade
+as a result of the migration. Therefore while there is value in keeping the
+migration delay small, we prioritize maximizing the \emph{usefulness} of the
+application in the distributed setting during the migration.
+
+\begin{figure}[H]
+\centering
+\includesvg{design-goals-pluggable.drawio}
+\caption{
+    Figure shows how slope allows the already partitioned units of
+    data/computation to be migrated across machines. However a need for request
+    routing between the machines is introduced. This along with similar issues
+    will be discussed in \TODO{a future section}.
+}
+\label{fig:designgoalspluggable}
+\end{figure}
 
 \section{Platform}
-- usable with current c++ data structures
+Applications have to call into Slope for initiating and carrying on the
+migration operations. Since Slope requires intimate access to the application
+memory, we need to carefully define what applications are supported
+before discussing API and interactions.
+
+We have chosen C++ as the platform to implement Slope, mainly because we need
+to directly access process memory and manage the way it is allocated and used.
+Applications must conform to the C++ allocation model which is used throughout
+the language and particularly, the standard template library. This means the
+STL containers are automatically migratable through Slope, 
+
+\begin{vertbatim}
+hello
+\end{verbatim}
+
+\section{Architecture}
+
+\section{Computation model}
+Fundamentally every server has to be able to host an incoming object.
+Since everything is async, this means that the object must know how to
+"register" itself upon arrival in the remote node. Be it exposing a particular
+api on a unix domain socket, or adding itself as an observer or worker to a blah.
 
 \section{???}
 
@@ -67,37 +128,40 @@ Provide definitions: source/host: current owner, destination/remote: future owne
 
 
 \TODO{sequence diagram}
+Hello
 
-- Prefetch step happens in the prepare phase. source walks through the pages one by one, mprotects them to readonly, and
-  sends them to the corresponding addresses over RDMA.
+%  - Prefetch step happens in the prepare phase. source walks through the pages one by one, mprotects them to readonly, and
+%    sends them to the corresponding addresses over RDMA.
+%  
+%    - This step is optional. If the data structure is under heavy usage and most of the memory is being touched, this
+%    will only lengthen the migration process, during which the source cannot allocate/deallocate to the object that is being
+%    migrated, without much improvement towards decreasing the handoff time, during which
+%    none of the two machines have read or write access to the data structure.
+%  
+%  
+%  ** Idea: From the call to execute, until when the source tells the sink about the call and send the
+%  dirty pages that it needs to pull, we are losing time. What if the source pushes a few of the pages
+%  based on a parameter that we optimize, to leverage the bandwidth during the idle time?
+%   - I think regardless of the size of the data structure, this is a useful approach: If it's big,
+%   only a small ratio is dirtied in between the phase changes and if it's small, then well, it's already small.
+%   Since we can send 100Gb/s = 100Mb/ms, this is even close to the rate at which we dirty the pages, we win. \TODO{ This is not possible. The target memory is not
+%   pinned before we tell them we're going to migrate into that specific part of their memory} \TODO{NO! this is happening after the prefill. The point here is to start the final transfer phase to make the handoff faster, not to make the whole migration process faster, which we don't really care that much about}
+%   \TODO{How do we choose which pages to prefill? Can they express interest? Should we first send the mig_ptr
+%   object headers to quickly generate the misses?}
+%  
+%  \section{Handling failures}
+%  Migrations effectively allow us to persist a correct state of the data structure: We have a snapshot at migration time
+%  
+%  If a node goes away, we don't lose anything because of the point to point
+%  nature of node communications. Every node knows who has allocated its memory
+%  and can evict those leases if it desirable. No application fault tolerance
+%  features provided aside from snapshots at migration time.
+%  
+%  
+%  \section{Building systems on top of slope}
+%  Discovery: can be done several ways: one way: lazy forwarding, keeping timestamps
+%  of the migrations to figure out who knows the most recent information, 
+%  Arp like protocol, 
 
-  - This step is optional. If the data structure is under heavy usage and most of the memory is being touched, this
-  will only lengthen the migration process, during which the source cannot allocate/deallocate to the object that is being
-  migrated, without much improvement towards decreasing the handoff time, during which
-  none of the two machines have read or write access to the data structure.
-
-
-** Idea: From the call to execute, until when the source tells the sink about the call and send the
-dirty pages that it needs to pull, we are losing time. What if the source pushes a few of the pages
-based on a parameter that we optimize, to leverage the bandwidth during the idle time?
- - I think regardless of the size of the data structure, this is a useful approach: If it's big,
- only a small ratio is dirtied in between the phase changes and if it's small, then well, it's already small.
- Since we can send 100Gb/s = 100Mb/ms, this is even close to the rate at which we dirty the pages, we win. \TODO{ This is not possible. The target memory is not
- pinned before we tell them we're going to migrate into that specific part of their memory} \TODO{NO! this is happening after the prefill. The point here is to start the final transfer phase to make the handoff faster, not to make the whole migration process faster, which we don't really care that much about}
- \TODO{How do we choose which pages to prefill? Can they express interest? Should we first send the mig_ptr
- object headers to quickly generate the misses?}
-
-\section{Handling failures}
-Migrations effectively allow us to persist a correct state of the data structure: We have a snapshot at migration time
-
-If a node goes away, we don't lose anything because of the point to point
-nature of node communications. Every node knows who has allocated its memory
-and can evict those leases if it desirable. No application fault tolerance
-features provided aside from snapshots at migration time.
-
-
-\section{Building systems on top of slope}
-Discovery: can be done several ways: one way: lazy forwarding, keeping timestamps
-of the migrations to figure out who knows the most recent information, 
-Arp like protocol, 
+% metric: change of (throughput per byte). What about the total time?
 \TODO{Should this be in the evaluation section}
