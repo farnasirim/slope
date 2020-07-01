@@ -72,8 +72,11 @@
 \usepackage{float}
 \usepackage{pgfplots}
 \usepackage{mwe}
+\usepackage{alltt}
+\renewcommand{\ttdefault}{txtt}
 \pgfplotsset{compat=newest}
 \usepackage[multidot]{grffile}
+
 %% *** Add \usepackage declarations here. ***
 %% The standard packages `geometry' and `setspace' are already loaded by
 %% `ut-thesis' -- see their documentation for details of the features
@@ -112,9 +115,9 @@
 %% separate file and use "\input{filename}" to input it here.
 \newcommand\TODO[1]{\textcolor{red}{(#1)}}
 
-\newcommand{\includesvg}[1]{%
-    \immediate\write18{inkscape -D --export-type=pdf --export-latex -o #1.pdf #1.svg}%
-    \input{#1.pdf_tex}%
+\newcommand{\ensurepdffromsvg}[1]{%
+\immediate\write18{sed -i 's/Viewer does not support full SVG 1.1//g' #1.svg}%
+\immediate\write18{rsvg-convert -f pdf -o #1.pdf #1.svg}%
 }
 
 %% *** Adjust the following settings as desired. ***

@@ -34,7 +34,9 @@ application in the distributed setting during the migration.
 
 \begin{figure}[H]
 \centering
-\includesvg{design-goals-pluggable.drawio}
+
+\ensurepdffromsvg{design-goals-pluggable.drawio}
+\includegraphics[width=0.5\textwidth]{design-goals-pluggable.drawio}
 \caption{
     Figure shows how slope allows the already partitioned units of
     data/computation to be migrated across machines. However a need for request
@@ -52,13 +54,71 @@ before discussing API and interactions.
 
 We have chosen C++ as the platform to implement Slope, mainly because we need
 to directly access process memory and manage the way it is allocated and used.
-Applications must conform to the C++ allocation model which is used throughout
-the language and particularly, the standard template library. This means the
-STL containers are automatically migratable through Slope, 
+Whether or not these limitations can be eliminated, for example by using slope
+as a service or like a sidecar process, as opposed to a library are future
+research directions.
 
-\begin{vertbatim}
-hello
-\end{verbatim}
+On the flip side, as a result of the Applications conforming to the C++
+allocation model which is used throughout the language and the standard
+template library, much of already existing C++ code can be quickly made
+migratable through Slope. STL containers for example, can be made migratable as long as they are given Slope's allocator for their allocator type parameter.
+
+\begin{figure}[H]
+\begin{alltt}
+// Declaration of std::vector in the STL
+template<
+    class T,
+    \textbf{class Allocator = std::allocator<T>}
+> class vector;
+
+template<typename T>
+using mig_vector = std::vector<T, slope::memory::Allocator<T>>;
+
+\end{alltt}
+\caption{
+\texttt{mig\_vector<T>} wraps \texttt{std{::}vector<T, Allocator<T>>}, setting
+its allocator type to one that slope provides. Objects of type
+\texttt{mig\_vector<T>} are migratable as a result. Similarly
+}
+\end{figure}
+
+
+
+
+
+\begin{figure}[H]
+\begin{alltt}
+// Declaration of std::vector in the STL
+template<
+    class T,
+    \textbf{class Allocator = std::allocator<T>}
+> class vector;
+
+template<typename T>
+using mig_vector = std::vector<T, slope::memory::Allocator<T>>;
+
+template<class T, class Allocator>
+class UserDefinedType \{
+  static inline Allocator allocator;
+  T *ptr_;
+ public:
+  template<typename... Args>
+  UserDefinedType(Args&&... args):
+    ptr_(\textbf{new (allocator.allocate(1))} T(std::forward<Args>(args)...)) \{ \}
+  // ...
+\};
+
+\end{alltt}
+\caption{
+Similar to the case with \texttt{std{::}vector<T, Allocator>},
+\texttt{UserDefinedType<T, Allocator>} is also migratable since it can work
+with a supplied allocator that conforms to C++ allocator named requirement.
+}
+\end{figure}
+
+
+\TODO{discuss threading? or somewhere else?}
+
 
 \section{Architecture}
 
@@ -165,3 +225,5 @@ Hello
 
 % metric: change of (throughput per byte). What about the total time?
 \TODO{Should this be in the evaluation section}
+\TODO{Where should I raise the discussion about how these objects must be
+used?}
