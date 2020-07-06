@@ -116,7 +116,7 @@
 \newcommand\TODO[1]{\textcolor{red}{(#1)}}
 
 \newcommand{\ensurepdffromsvg}[1]{%
-\immediate\write18{sed -i 's/Viewer does not support full SVG 1.1//g' #1.svg}%
+%\immediate\write18{sed -i 's/Viewer does not support full SVG 1.1//g' #1.svg}%
 \immediate\write18{rsvg-convert -f pdf -o #1.pdf #1.svg}%
 }
 
@@ -162,13 +162,12 @@
     increased CPU usage.
 
     In this thesis we introduce Slope, a plugable solution for making already
-    existing data~structures migratable. Our approach eliminates data
+    existing data~structures or any self-contained computation unit migratable.
+    Our approach eliminates data
     serialization and can be applied to already existing data~structures. We
-    use RDMA as the transport which plays naturally with the design of Slope \TODO{this says nothing.}
-    Slope can be incorporated to already existing performance-critical systems
-    like transaction processing systems to provide them means of load balancing
-    their hot data~structures.\TODO{more concrete}
-    We evaluate on blah \TODO{incomplete}.
+    use RDMA as the transport as it closely fits the requirements of Slope.
+    We can incorporate Slope into already existing applications with
+    separable and independent units of computations. We evaluate on blah \TODO{incomplete}.
 
 % TODO:
 \TODO{remove these before final build: pdfinfoomitdate 1 pdfsuppressptexinfo-1 pdftrailerid
