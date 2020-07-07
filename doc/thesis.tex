@@ -113,7 +113,9 @@
 %% \newenvironment's, \newtheorem's, etc. (in other words, all the
 %% global definitions that you will need throughout your thesis) in a
 %% separate file and use "\input{filename}" to input it here.
-\newcommand\TODO[1]{\textcolor{red}{(#1)}}
+\newcommand\ANGELA[1]{\textcolor{blue}{(Angela: #1)}}
+\newcommand\TODO[1]{\textcolor{purple}{(#1)}}
+\newcommand\CHECK[1]{\textcolor{orange}{(Updated: #1)}}
 
 \newcommand{\ensurepdffromsvg}[1]{%
 %\immediate\write18{sed -i 's/Viewer does not support full SVG 1.1//g' #1.svg}%
@@ -152,11 +154,13 @@
 \begin{abstract}
 
 %% *** Put your Abstract here. ***
-    Load imbalance and data locality are important \TODO{how important,
-    based on what} performance factor in software systems \TODO{more specific?}.
-    Moving in-memory resources across machines can directly impact the
-    above metrics, however changing \TODO{better word?} the designs of
-    data~structures to make them migratable \TODO{a bit complicated} is not only
+    Load balance and data locality are important performance factors
+    \ANGELA{Emphasize *distributed* software systems in particular, since you are focused on moving data structures across machines.}
+    \CHECK{in distributed software systems where managing the data or carrying
+    out the computations on a single single machine becomes infeasible}.
+    The ability to move in-memory resources across machines can directly impact the
+    above metrics in applications, however altering the designs of
+    data~structures to make them migratable is not only
     a non-trivial task but also can incur
     performance penalties resulting from serialization and de-serialization and
     increased CPU usage.
