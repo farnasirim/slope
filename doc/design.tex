@@ -34,13 +34,13 @@ as a result of the migration. Therefore while there is value in keeping the
 migration delay small, we prioritize maximizing the \emph{usefulness} of the
 application in the distributed setting during the migration.
 
-\begin{figure}[H]
+\begin{figure}[t]
 \centering
 
 \ensurepdffromsvg{design-goals-pluggable.drawio}
 \includegraphics[width=0.5\textwidth]{design-goals-pluggable.drawio}
 \caption{
-    Figure shows how Slope allows the already partitioned units of
+    Slope allows the already partitioned units of
     data/computation to be migrated across machines. However a need for request
     routing between the machines is introduced. This along with similar issues
     will be discussed in \TODO{a future section}.
@@ -67,7 +67,8 @@ allocation model which is used throughout the language and the standard
 template library, much of already existing C++ code can be quickly made
 migratable through Slope. STL containers for example, can be made migratable as long as they are given Slope's allocator for their allocator type parameter.
 
-\begin{figure}[H]
+\TODO{t placement completely messes up the layout I have in mind and ht won't make things any better}
+\begin{figure}[t]
 \begin{alltt}
 // Declaration of std::vector in the STL
 template<
@@ -90,7 +91,7 @@ its allocator type to one that Slope provides. Objects of type
 
 
 
-\begin{figure}[H]
+\begin{figure}[t]
 \begin{alltt}
 // Declaration of std::vector in the STL
 template<
@@ -192,7 +193,7 @@ performance.
 
 It is important to note that although strict and inflexible, the requirement of
 placing Slope memory on the same virtual address in all machines is,
-unfortunately, a fundamental requirement. Figure \ref{localmemorymanagementfundamental}
+unfortunately, a fundamental requirement. Figure \ref{fig:localmemorymanagementfundamental}
 shows an example of why this is the case. The implication is as long as the
 application has any means of referencing the underlying virtual address of any
 of its resources, its correct execution may end up depending on that address
@@ -235,7 +236,7 @@ int main() \{
     address to a new virtual address. \texttt{m} has no way of figuring out
     the new address and no way of translating its address dependencies.
 }
-\label{localmemorymanagementfundamental}
+\label{fig:localmemorymanagementfundamental}
 \end{figure}
 
 
