@@ -156,22 +156,24 @@
 %% *** Put your Abstract here. ***
     Load balance and data locality are important performance factors
     \ANGELA{Emphasize *distributed* software systems in particular, since you are focused on moving data structures across machines.}
-    \CHECK{in distributed software systems where managing the data or carrying
-    out the computations on a single single machine becomes infeasible}.
+    \CHECK{emphasized distributed applications} in distributed software systems where managing the data or carrying
+    out the computations on a single single machine becomes infeasible.
     The ability to move in-memory resources across machines can directly impact the
     above metrics in applications, however altering the designs of
-    data~structures to make them migratable is not only
+    data~structures and algorithms to make them migratable is not only
     a non-trivial task but also can incur
     performance penalties resulting from serialization and de-serialization and
     increased CPU usage.
 
-    In this thesis we introduce Slope, a plugable solution for making already
-    existing data~structures or any self-contained computation unit migratable.
-    Our approach eliminates data
-    serialization and can be applied to already existing data~structures. We
-    use RDMA as the transport as it closely fits the requirements of Slope.
-    We can incorporate Slope into already existing applications with
-    separable and independent units of computations. We evaluate on blah \TODO{incomplete}.
+    In this thesis we introduce Slope, a plugable solution for making
+    data~structures and their associated operations migratable. On a higher
+    level this allows distributed applications to make their self-contained
+    units of computation migratable to achieve data locality and load balance.
+    Our approach eliminates data serialization and can be applied to existing
+    systems. We use RDMA as the transport as it closely fits the requirements of Slope.
+    We identify key metrics for our migration operation and evaluate Slope on
+    microbenchmarks to measure the performance of each sub-system, and on full
+    distributed applications to discuss end-to-end efficiency.
 
 % TODO:
 \TODO{remove these before final build: pdfinfoomitdate 1 pdfsuppressptexinfo-1 pdftrailerid
