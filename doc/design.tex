@@ -556,8 +556,6 @@ over time.
 
 \subsubsection{Transfer of ownership}
 
-\TODO{HEEEEEEEEEEEEEEEEEEEEEEERE}
-
 Contrary to case of detecting the pages that become dirty, which can be done
 as described above, prevention of this phenomenon cannot be dealt with this way.
 For example we may try to set texttt{PROT\_NONE} permission on a page to
@@ -578,8 +576,6 @@ application had been doing during the execution of a certain function. Therefore
 from the standpoint of the library, we do not have enough information to deal
 with cases similar to these, as aside from detecting the illegal writes, there
 is no right action to take to remedy them.
-
-\TODO{HEEEEEEEEEEEEEEEEEEEEEEERE}
 
 \label{sec:transferownership}
 At this point we are ready to turn the ownership over to the destination.
@@ -734,3 +730,5 @@ which address to create the migration pointer.
 
 % \TODO{to design an application level (layer 7) router: add buffer to write additional things, initiate migrate, finish processing, hand over,
 % resulting in next to no latency}
+
+%\TODO{deallocations can happen off the critical path, the home node will merge everything}

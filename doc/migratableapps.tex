@@ -109,7 +109,7 @@ a simple example of this use case.
 \centering
 
 \ensurepdffromsvg{migration-transport.drawio}
-\includegraphics[width=0.5\textwidth]{migration-transport.drawio}
+\includegraphics[width=0.8\textwidth]{migration-transport.drawio}
 \caption{
     Using a migration platform as the transport in a system with
     application level routing/load balancing. The system needs to execute
@@ -119,19 +119,49 @@ a simple example of this use case.
     from other requests. Each request is also self sufficient as its
     state identifies what action and by which machine type must be
     executed on the object. Each node executes its share of work
-    on the request object based on its current state, updates the state,
-    and sends it to the next hop based on the state.
+    on the request object based on its current state, updates the state by
+    writing to the object memory, and migrates it to the next hop based
+    on the state.
 }
 \label{fig:migrationtransport}
 \end{figure}
 
+From a performance point of view, this makes little difference to the
+application if there is serialization involved. In fact we could have
+even framed
+serialization and deserialization and RPC as a migration framework. If we
+could do the migration in a ``pure'' way, meaning we could ideally
+eliminate the serialization and deserialization, limiting what is sent
+over the wire between each pair of servers to a minimum, the applications
+performance has a chance of improvement. If we were able to hand off
+objects between servers in a way that is not different from calling a
+function on the same server, the two servers will in essence look
+``closer'' to each other both from a performance and a programmability
+point of view. The former will result in improvements in run-time and
+the latter will empower system designers.
 
-needs performance better than serialization
+The difference between this computation model and a general
+request-response or RPC model is that the unit of work is a
+well defined object and each step in the computation can be
+efficiently modeled as doing certain computation work and then taking
+the object to the next state. This will rarely resemble the computation
+model of an application that is modeled as a number of completely separate
+services, or how a mobile client would communicate with the application
+server.
 
-real-time
+From a different angle, this model allows us to choose a tightly
+coupled set of performance critical tasks in an application with
+heterogeneous data or computation requirements, and model their
+communication using a framework which hides low level networking details
+and takes away the need to serialize or deserialize payloads.
+This is an improvement in programmability. With little development
+effort and no complications in the design of the application,
+we can build, maintain and
+extend sub-systems which can carry out tasks across multiple machines.
 
-if have fast migraition, but have GPU or DB on certain nodes.
-
+Similar to the previous type of applications, the need for the migration
+framework to be real-time directly relates to how useful it will be for
+the applications.
 
 
 \section{Computation model and API}

@@ -73,9 +73,17 @@
 \usepackage{pgfplots}
 \usepackage{mwe}
 \usepackage{alltt}
+\usepackage{hyperref}
 \renewcommand{\ttdefault}{txtt}
 \pgfplotsset{compat=newest}
 \usepackage[multidot]{grffile}
+
+
+\def\chapterautorefname{Chapter}
+\def\sectionautorefname{Section}
+\def\subsectionautorefname{Section}
+\def\subsubsectionautorefname{Section}
+\def\figureautorefname{Figure}
 
 %% *** Add \usepackage declarations here. ***
 %% The standard packages `geometry' and `setspace' are already loaded by
@@ -155,8 +163,7 @@
 
 %% *** Put your Abstract here. ***
     Load balance and data locality are important performance factors
-    \ANGELA{Emphasize *distributed* software systems in particular, since you are focused on moving data structures across machines.}
-    \CHECK{emphasized distributed applications} in distributed software systems where managing the data or carrying
+    in distributed software systems where managing the data or carrying
     out the computations on a single machine becomes infeasible.
     The ability to move in-memory resources across machines can directly impact the
     above metrics in applications. That said, altering the designs of
@@ -178,6 +185,7 @@
 % TODO:
 \TODO{remove these before final build: pdfinfoomitdate 1 pdfsuppressptexinfo-1 pdftrailerid
 }
+\TODO{fix the unsupported viewer text in diagrams}
 \end{abstract}
 
 %% Anything placed between the abstract and table of contents will

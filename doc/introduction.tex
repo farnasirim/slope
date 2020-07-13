@@ -1,6 +1,7 @@
 \chapter{Introduction}
 \label{chap:introduction}
 
+\section{Locality in distributed applications}
 Resource requirements of typical workloads in modern applications well surpass the
 capacity of a single machine. System designers distribute applications among clusters of
 machines to
@@ -27,8 +28,7 @@ such that they will have local access to their data.
 In each of the following examples a form of partitioning is used to limit
 cross-partition accesses, while allowing those partitions to be
 distributed evenly on multiple machines.
-
-        \subparagraph{Randomly partitioned in-memory distributed hash tables:} One partition or shard
+\subparagraph{Randomly partitioned in-memory distributed hash tables:} One partition or shard
     does not require any information from other partitions to be able to
     operate. We need to route a request to the machine that contains the
     corresponding shard,
@@ -56,6 +56,8 @@ distributed evenly on multiple machines.
     week will end up with more cross-partition accesses than the previous
     sharding strategy well all of the data of a user lies inside one shard.
 
+
+\section{Solving the locality/load balancing equation}
 \paragraph{}
 Most of these applications have specific data access or data sharing patterns.
 These patterns are results of designing specialized systems for specific
@@ -93,15 +95,13 @@ closed to additions, and we will be stuck with very restricted APIs and specific
 guarantees on how they work, while trying not to voilate our own data management
 conditions.
 
-\ANGELA{Good problem statement. Not clear however what it means for data
-partitioning to be well-defined.}
-\CHECK{Rewrote introduction to make data partitioning understandable and make
-the problem more clear.}
 In general terms, the above situation arises when system designers design
 core algorithms with data partitioning in mind, providing solutions for two
 problems at the same time. The issue is that in doing so, they typically have to
 trade-off programmability and maintainability, while making their overall design
 more complex.
+
+\section{Problem statement}
 
 We can therefore ask if it is possible to reach a balance in the above equation.
 Is it possible to select a subset of partitionable application types
