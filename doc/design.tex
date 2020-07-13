@@ -18,6 +18,10 @@ Whether or not these limitations can be eliminated, for example by using Slope
 as a service or like a sidecar process, as opposed to a library are future
 research directions.
 
+\subsection{A section on how useful the programming model is}
+E.g. what data structures can be used naturally in this model
+Moved here from evaluation section
+\subsection{Multi-threading support}
 
 
 \subsection{Local memory layout}
@@ -74,7 +78,7 @@ performance.
 \TODO{Elaborate}
 It is important to note that although strict and inflexible, the requirement of
 placing Slope memory on the same virtual address in all machines is,
-unfortunately, a fundamental requirement. Figure \ref{fig:localmemorymanagementfundamental}
+unfortunately, a fundamental requirement. \autoref{fig:localmemorymanagementfundamental}
 shows an example of why this is the case. The implication is as long as the
 application has any means of referencing the underlying virtual address of any
 of its resources, its correct execution may end up depending on that address
@@ -187,7 +191,7 @@ allocation model which is used throughout the language and the standard
 template library, much of existing C++ code can be quickly made
 migratable through Slope. STL containers for example, can be made migratable
 as long as they are given Slope's allocator for their allocator type parameter.
-Figures \ref{fig:stdvector} and \ref{fig:migvector} demonstrate this.
+\autoref{fig:stdvector} and \autoref{fig:migvector} demonstrate this.
 }
 
 
@@ -226,7 +230,7 @@ its allocator type to one that Slope provides. Objects of type
 
 \TODO{applications can also easily create their own migratable types.
 \TODO{bringing your own memory allocator does not make much sense}
-\ref{fig:userdefinedtype}}
+\autoref{fig:userdefinedtype}}
 
 
 \TODO{done benefits of the custom allocator}
@@ -330,8 +334,8 @@ of the data that is already replicated to the remote node during the prefill
 phase. Some of the prefilled data must be invalidated due to writes between the
 prefill and the transfer phases. The participants need to correctly identify
 the pages whose contents need to be invalidated to benefit from the performance
-gain, while doing a correct transfer. This will be discussed in detail in section
-\ref{sec:migrationprotocol}.
+gain, while doing a correct transfer. This will be discussed in detail in
+\autoref{sec:migrationprotocol}.
 
 \subsection{Distributed memory management}
 
@@ -346,7 +350,7 @@ in many of these cases, forcing the application to satisfy low level conditions
 cannot be completely achieved by the library and the responsibility of
 conforming to these conditions will be left to the application.
 
-Figure \ref{fig:migrationprotocol} outlines the migration protocol and the role
+\autoref{fig:migrationprotocol} outlines the migration protocol and the role
 of Slope at different stages during the above timeline.
 
 \begin{figure}[t]
@@ -370,10 +374,10 @@ the target object. Up until the point that
 the source initiates the migration, all of the memory allocations of the target object
 must happen through
 Slope's custom memory allocator through allocation contexts as discussed in
-\TODO{must discuss contexts} \ref{sec:platform}.
+\TODO{must discuss contexts} \autoref{sec:platform}.
 The application must satisfy the memory allocation requirements discussed in
 \TODO{briefly mention here, elaborate there, so reader has a sense of limitations}
-\ref{subsec:trackallocations} to make sure Slope correctly keeps track of the
+\autoref{subsec:trackallocations} to make sure Slope correctly keeps track of the
 memory that each object references. \TODO{Namely...}
 
 After the object is created the program will call the \texttt{run()} method
@@ -381,7 +385,7 @@ of the object, which may result in further calls to the memory allocator as
 the object might need to allocate memory to process its incoming requests or
 carry out the calls to its member functions. These new allocations will be
 correctly picked up by Slope allocator given that allocation contexts are used
-as discussed in \ref{subsec:trackallocations}, meaning at any point in time we
+as discussed in \autoref{subsec:trackallocations}, meaning at any point in time we
 know which memory pages belong to the target object.
 
 \subsubsection{Migration initiation}
@@ -514,7 +518,7 @@ out the RDMA operations is the writer and the threads that may call into the
 signal handler are potential readers. As a result, each thread will will block
 inside the signal handler until
 the address to which they are trying to write acquires the correct permission.
-Figure \ref{fig:dirtydetection} shows the execution flow of multiple threads
+\autoref{fig:dirtydetection} shows the execution flow of multiple threads
 as each of them they fall into one of the above cases while Slope prefills a
 page.
 
@@ -598,7 +602,7 @@ ideally transition to a ``pre-transfer'' mode after the initial migration
 initiation. In this phase the application will try to do mostly read-only
 accesses to avoid dirtying too many pages as this will cause the migration
 to be done less efficiently with more pages that need to be transferred twice.
-Section \ref{sec:api} discusses this in detail and \ref{sec:conform} will
+\autoref{sec:api} discusses this in detail and \autoref{sec:conform} will
 discuss how this model fits naturally in C++ programs.
 
 After the application clears the migration, effectively promising to never
@@ -732,3 +736,10 @@ which address to create the migration pointer.
 % resulting in next to no latency}
 
 %\TODO{deallocations can happen off the critical path, the home node will merge everything}
+
+
+%\TODO{build a function as a service framework on this}
+%\TODO{Make the computation model more restricted to get rid of the fixed address requirement. Use higher level languages. Use in conjunction with the function as a service}
+%\TODO{can this be used for other systems such as parallel processing
+% based on actor models and message queues with efficient support for
+%e.g. fan out}

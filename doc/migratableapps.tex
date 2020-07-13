@@ -37,7 +37,7 @@ properties of migratable applications.
 
 \subsection{Migratable partitions}
 
-Figure \ref{fig:designgoalspluggable} shows our first sketch of a
+\autoref{fig:designgoalspluggable} shows our first sketch of a
 migration-friendly application which consists of symmetric instances
 running on the machines in a cluster. The application can internally
 partition its units of work into partitions that can be operated or
@@ -75,7 +75,7 @@ meaning the need to rebalance the workload arises frequently,
 then the migration platform must also work in real-time.
 
 In these applications each shard or partition will likely provide the
-full API of the whole system. In Figure \ref{fig:designgoalspluggable},
+full API of the whole system. In \autoref{fig:designgoalspluggable},
 if the workload did not contain partitions 2 and 3, then the only
     difference in the transition from top to bottom would have been the
     thin API wrapper around its partition which is responsible for tasks
@@ -102,7 +102,7 @@ Therefore apart from the run-time load balancing benefit, the
 With certain performance qualifications, a migration framework can act as
 an intra-cluster transport. Example use cases for such a transport arise
 in application level (or layer 7 in OSI terms) routers in heterogeneous
-computation environments. Figure \ref{fig:migrationtransport} depicts
+computation environments. \autoref{fig:migrationtransport} depicts
 a simple example of this use case. 
 
 \begin{figure}[t]
@@ -159,24 +159,111 @@ effort and no complications in the design of the application,
 we can build, maintain and
 extend sub-systems which can carry out tasks across multiple machines.
 
-Similar to the previous type of applications, the need for the migration
-framework to be real-time directly relates to how useful it will be for
-the applications.
+\subsection{Core properties of a migration framework}
+
+The function of a migration platform is to provide a mechanism to allow
+applications to seamlessly move their data structures and their
+corresponding operations across their instances.
+
+\paragraph{Real-time performance:}
+We define migration delay to be the elapsed time since the start of the
+migration of an object until it is successfully migrated to its
+destination. Based on the two application types that were discussed,
+the most
+important feature of a migration framework is its ability to keep the
+migration delay small to allow migrations to happen in real-time.
+However this is not particularly insightful in designing such a system.
+All applications will prefer a smaller end-to-end migration delay
+if all of their other metrics are left unchanged. Similarly exceedingly
+    large migration delays will interfere with the performance of
+    virtually all applications. Furthermore, directly measuring this
+    duration and pursuing its optimization as the main performance goal
+    may fail to reflect how the migration process impacts the application.
+    For example some applications may prioritize responsiveness and
+    would trade off
+    some of their throughput during the migration process to keep their
+    tail latencies low.  Therefore it makes more sense to define migration
+    performance from the view point of the application based on how
+    \emph{its} performance metrics degrade as a result of the migration.
+    While there is value in keeping the migration delay small, we must
+    prioritize maximizing the \emph{usefulness} of the application in
+    the distributed setting during the migration.
+
+\paragraph{Pluggability and Programmability:}
+A fast migration mechanism comes at a cost. After all, each application
+could theoretically hand craft and micro-optimize its networking protocol,
+but this will complicate the design of the application by propagating
+the complexities of the low level protocol into the core of the
+application. This will make it difficult to maintain and improve the
+application since a small change in how the application carries out its
+task may break the preconditions of the custom protocol. Therefore as the
+second core requirement of migration platforms, 
+we will aim for zero modification to the
+internals of the application and minimal addition to the API of the
+units of computation. That means if
+the system designer has already come up with a way to partition
+data and computation into units that can be run independently on
+possibly different machines, the task of integrating the migration
+platform into the system to make those units migratable should be trivial.
+
 
 
 \section{Computation model and API}
 \label{sec:api}
-migratable objects are swarm-like types, not singletons
+It is not yet clear how a migration platform will be used by the
+applications. How does the source machine deals with the fact that it
+no longer possesses an object? How will the destination receive an object?
+How would the destination application know what to do with an object
+that it has just received?
 
-We want to be able to transform from A to B. Figure
-\ref{fig:designgoalspluggable} shows how this idea will be look like on a high
-level. Generally a requirement for routing the requests will be introduced.
+In a simple artificial case where we are migrating a singleton across
+the nodes in the cluster, handing its ownership to the cluster nodes one
+at a time, these issues might sound trivial. However in more complicated
+cases where there can be multiple types of migratable objects in the
+system with varying quantities, we need to build a systematic model that
+explains what we can do with migratable objects and how the participating
+machines can do it.
 
+In this section we will revisit the two types of applications that
+we previously introduced and discuss how they can interface with a
+hypothetical migration platform.
 
-\subsection{A section on how useful the programming model is}
-E.g. what data structures can be used naturally in this model
-Moved here from evaluation section
-\subsection{Multi-threading support}
+\subsection{Listen and serve model}
+the first type of application that we discussed can be thought of as a
+part of more general family of distributed applications that we call
+listen and serve applications.
+Such systems consist of multiple partitions or shards, each
+of which can function on their own. After each shard is initialized, it
+will indefinitely execute the "listen and serve" routine,
+exposing an API through which the other sub-systems of the application
+will communicate with that particular shard. Since each of these shards
+operates independently from the other ones and is only
+responsible for a certain part of the workload, the application
+must also provide a routing mechanism to
+deliver requests to the correct shard. A randomly sharded distributed
+key-value store is an example of this type of applications, where the
+partitions of the key-value store naturally map to the partitions in this
+model. In the simplest case, each of the partition waits for the incoming
+get and set requests, which corresponds to listen and serve in this model.
+The application routes requests by keeping track of which machine
+is responsible for which set of keys (e.g. through a consistent hashing
+scheme).
+
+\subsection{State machine model}
+Generalizing the second type of application will lead us to modeling
+tasks as state machines. In this model each task consists of an
+independent object in conjunction with the set of operations that must be
+executed on the object, which result in carrying on the task. Upon
+receiving of the object, the machine will run the routine that the current
+state of the object dictates. At the end of the routine based on the, new
+state of the object, it might be migrated to another machine. In
+\ref{fig:migration/transport} the routine in the ``gpu'' state could be:
+``If on a non-GPU machine, migrate to a GPU machine with the same state,
+otherwise perform the computation and move to the ready state''. This
+model can be useful for handling tasks which depend on heterogeneous
+hardware for acceleration. Using this model, any machine-local
+resource in the cluster can be made available to the whole cluster over
+a migration-based transport.
 
 describe the \texttt{run()} function and describe the ``thread of execution''.
 \TODO{...}
@@ -198,51 +285,4 @@ supporting read-only operations and even write operations with carefully
 created static buffers that can contain unsupported (those that allocate/deallocate)
 operations that the object has received after a call to initiate migration has
 already been made.
-
-
-\subsection{state machine}
-task with gpu/accelerator friendly component
-
-\subsection{listen and serve}
-distributed key-value store
-
-
-\section{Design goals}
-
-Slope aims to provide a migration mechanism \CHECK{to allow applications to}
-seamlessly move their data structures, and as a result, their corresponding
-operations, across their instances.
-
-The most important design goal of Slope is being pluggable in existing
-applications which work with their data in a partitionable way. That means if
-the system designer has already come up with a way to partition
-application data and computation into units that can be run independently on 
-possibly different machines, the task of integrating Slope into the system
-to make its data
-structures or more complex computation units migratable should be trivial.
-
-To be more specific, we aim for zero modification to the internals of the
-application and minimal addition to the API of the computation units just to
-correctly define their behavior during their life cycle in Slope.
-
-The migration delay which we define as the elapsed time since the start of the
-migration of an object until it is successfully migrated is an important
-performance metric in Slope. Clearly any application will prefer a smaller
-end-to-end migration delay if every other metric is left unchanged. In contrast,
-exceedingly large migration delays will interfere with the performance of
-virtually all applications.
-
-However, directly measuring this duration and pursuing its optimization
-as the main performance goal may fail
-\CHECK{} to reflect how the migration process impacts the application. Some
-applications may prioritize responsiveness and would trade off some of their
-throughput during the migration process to keep their tail latencies low.
-Similarly an application may choose the opposite or any scenario in the middle.
-Therefore it makes more sense to define migration performance from the view
-point of the application based on how \emph{its} performance metrics degrade
-as a result of the migration. Therefore while there is value in keeping the
-migration delay small, we prioritize maximizing the \emph{usefulness} of the
-application in the distributed setting during the migration.
-
-\TODO{we explore these more in the evaluation section (how to define usefulness)}
 
