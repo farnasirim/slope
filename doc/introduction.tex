@@ -10,7 +10,7 @@ resource requirements increase over time.
 
 In a distributed application, data access locality is a performance goal
 and load balancing is a closely related condition.
-As the workloads of the distributed applications grow the application
+As the workloads of the distributed applications grow, the application
 requests might need to be processed on multiple machines based on how the 
 required data is distributed throughout the cluster. The application instances
 can communicate using well known techniques like message passing, however
@@ -20,16 +20,15 @@ MapReduce \cite{dean2008mapreduce} can rarely benefit from the privilege of
 access to a global
 shared memory in a synchronized manner. These are the applications with
 data that is partitionable such that the data accesses from one operation
-fall in that one partition only. This is desirable because as long as we
+fall in that partition only. This is desirable because as long as we
 satisfy the load balancing constraint, we can schedule the computations
 such that they will have local access to their data.
 
 In each of the following examples a form of partitioning is used to limit
 cross-partition accesses, while allowing those partitions to be
-balanced on multiple machines.
+distributed evenly on multiple machines.
 
-\begin{itemize}
-    \item Randomly partitioned in-memory distributed hash tables: one partition or shard
+        \subparagraph{Randomly partitioned in-memory distributed hash tables:} One partition or shard
     does not require any information from other partitions to be able to
     operate. We need to route a request to the machine that contains the
     corresponding shard,
@@ -37,25 +36,27 @@ balanced on multiple machines.
     request will be carried out internally by the shard on the data that
     is owned by the shard and is local to the machine.
 
-    \item Partitioning shipping orders by warehouse IDs: during the
+    \subparagraph{Partitioning shipping orders by warehouse IDs:} during the
     processing of an order, there might be multiple sub-systems involved,
     but the inventory and stock of each warehouse, are internal to
     the warehouse partitions. Those parts of the requests that concern the
     stock and inventory can be processed internally by the shard without
     communication with other partitions.
 
-    \item Web application user behavior statistics: We can partition this data
-    and it's operations (append, query, etc.) by user IDs. For most of
+    \subparagraph{Web application user behavior statistics:} We can partition
+    the data and the supported operations (append user action,
+    query user actions, etc.) by user IDs.
+    For most of
     the user actions, the operations can be done by local access to the
-    data structures in the current user partition. To further optimize for
-    finer grain load balancing to store historical data and avoiding
-    hotspots, we can partition over multiple keys. In this case we can
+    data structures in the current user partition. To prevent hotspots when
+    storing historical data, we can aim for finer grain partitioning using
+    multiple keys. In this case we can
     partition on user IDs and the date of the action, however operations like
     querying the behavior of the user over the past
     week will end up with more cross-partition accesses than the previous
-    sharding strategy.
-\end{itemize}
+    sharding strategy well all of the data of a user lies inside one shard.
 
+\paragraph{}
 Most of these applications have specific data access or data sharing patterns.
 These patterns are results of designing specialized systems for specific
 use cases like key value stores or per user statistics.
@@ -74,21 +75,23 @@ remedying this situation would be for the system to somehow stop the incoming
 flow of requests to one of the hot shards, serialize that shard, send it to
 a machine with less load, and re-route all the requests to that node. There
 are multiple issues with approaches similar to this. First, the shard will be
-inaccessible for a long period. In addition to that,
+inaccessible for a long period while it is being transferred. In addition
+to that,
 the serialization incurs a considerable performance penalty. This increases
 code complexity too as the shard entity must have migration built into it,
-a requirement which can interfere with the internal algorithms of the hash
-table.
+a requirement which can interfere with the flexibility of the internal
+algorithms of the hash table.
 
 Design decisions like the above make applications harder to maintain. Their
 core algorithms will become dependent on low level system properties.
 Replacing the
-algorithms with more efficient versions and reusing techniques developed by
-others also become difficult. In such an application
+algorithm implementation with more efficient versions developed by others will
+be difficult. In such an application
 the algorithms and data structures which the system uses are no longer well
 defined black boxes. As a result, the overall design of the system will be
-closed to additions, with the APIs being forced to act in a very restricted way
-not to violate its own data management conditions.
+closed to additions, and we will be stuck with very restricted APIs and specific
+guarantees on how they work, while trying not to voilate our own data management
+conditions.
 
 \ANGELA{Good problem statement. Not clear however what it means for data
 partitioning to be well-defined.}
@@ -108,10 +111,11 @@ interference with the algorithms' execution inside the partition, without
 sacrificing performance (e.g. with serialization and deserialization), the
 application designers can comfortably design \emph{single partitions}, instead
 of \emph{whole distributed systems}. The platform will then ensure that each
-partition can run correctly, and that no machine's resources are
-over-subscribed. Not only the application will achieve load balancing for free,
+partition can run correctly, and that the resources on no machine are
+over-subscribed. Not only the application will achieve load balancing without
+much effort,
 but also it will end up with a simpler design, with all
-of the logic for a distributed environment being done by the framework,
+of the logic for a distributed environment being managed by the framework,
 out of the core application code.
 
 % \TODO{How do I write something general about data locality and load imbalance?}
@@ -265,10 +269,16 @@ out of the core application code.
 % section title? Would a figure be useful?}
 
 \section{Contributions}
-We propose the design and an implementation of slope
-
-
-
-
-\section{Outline}
+To answer the above question we extend the notion of migratability that is
+introduced in RAMP \cite{memon2018ramp} to data structures and in general,
+self-containing units of work in distributed applications.
+We introduce
+the properties of migration-friendly applications and discuss
+how they would interface with an object-based migration platform.
+We then present the design of Slope, an object-based migration framework
+and its implementation in C++ using RDMA networking and propose metrics
+to measure the performance of migration frameworks based on how they affect
+the applications.
+To conclude, we provide an overview of the shortcomings of Slope and
+discuss possible future directions to improve the migratable programming model.
 
