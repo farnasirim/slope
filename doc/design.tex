@@ -1,124 +1,8 @@
-\chapter{Design of Slope}
+\chapter{Design and Implementation of Slope}
 \label{chap:design}
 
-First in the computation model section we speculate what the api would look like
-
-Introduce possible use cases of such a platform in distributed applications
-
-from this we can come up with design goals and important performance metrics
-and hints at the places where we need to be careful
-
 We then discuss migration and show how it satisfies the above
-
 Then discuss core migration algorithm
-
-\ANGELA{
-Provide overview of the Slope platform before diving into the details of programming model and architectural design.
-}
-\TODO{
-Explain the what before the how,
-then say these are things we need to do, lays out number of requirements,
-balance tradeoff: access at the source vs how quickly,
-tracking allocs,
-talk over network,
-}
-
-\TODO{Discuss all figures in text}
-
-
-\section{Computation model and API}
-\label{sec:api}
-migratable objects are swarm-like types, not singletons
-
-We want to be able to transform from A to B. Figure
-\ref{fig:designgoalspluggable} shows how this idea will be look like on a high
-level. Generally a requirement for routing the requests will be introduced.
-
-\begin{figure}[t]
-\centering
-
-\ensurepdffromsvg{design-goals-pluggable.drawio}
-\includegraphics[width=0.5\textwidth]{design-goals-pluggable.drawio}
-\caption{
-    Slope allows the already partitioned units of
-    data/computation to be migrated across machines.
-}
-\label{fig:designgoalspluggable}
-\end{figure}
-
-
-\subsection{A section on how useful the programming model is}
-E.g. what data structures can be used naturally in this model
-Moved here from evaluation section
-\subsection{Multi-threading support}
-
-describe the \texttt{run()} function and describe the ``thread of execution''.
-\TODO{...}
-
-describe threading model
-
-\TODO{figure for per core and how threads interact with them}
-
-\TODO{fill}
-Fundamentally every server has to be able to host an incoming object.
-Since everything is async, this means that the object must know how to
-"register" itself upon arrival in the remote node. Be it exposing a particular
-api on a unix domain socket, or adding itself as an observer or worker to a blah.
-
-each control plane has a fixed type
-
-applications can intelligently use the time until ownership is transferred by
-supporting read-only operations and even write operations with carefully
-created static buffers that can contain unsupported (those that allocate/deallocate)
-operations that the object has received after a call to initiate migration has
-already been made.
-
-
-\subsection{state machine}
-task with gpu/accelerator friendly component
-
-\subsection{listen and serve}
-distributed key-value store
-
-
-\section{Design goals}
-
-Slope aims to provide a migration mechanism \CHECK{to allow applications to}
-seamlessly move their data structures, and as a result, their corresponding
-operations, across their instances.
-
-The most important design goal of Slope is being pluggable in existing
-applications which work with their data in a partitionable way. That means if
-the system designer has already come up with a way to partition
-application data and computation into units that can be run independently on 
-possibly different machines, the task of integrating Slope into the system
-to make its data
-structures or more complex computation units migratable should be trivial.
-
-To be more specific, we aim for zero modification to the internals of the
-application and minimal addition to the API of the computation units just to
-correctly define their behavior during their life cycle in Slope.
-
-The migration delay which we define as the elapsed time since the start of the
-migration of an object until it is successfully migrated is an important
-performance metric in Slope. Clearly any application will prefer a smaller
-end-to-end migration delay if every other metric is left unchanged. In contrast,
-exceedingly large migration delays will interfere with the performance of
-virtually all applications.
-
-However, directly measuring this duration and pursuing its optimization
-as the main performance goal may fail
-\CHECK{} to reflect how the migration process impacts the application. Some
-applications may prioritize responsiveness and would trade off some of their
-throughput during the migration process to keep their tail latencies low.
-Similarly an application may choose the opposite or any scenario in the middle.
-Therefore it makes more sense to define migration performance from the view
-point of the application based on how \emph{its} performance metrics degrade
-as a result of the migration. Therefore while there is value in keeping the
-migration delay small, we prioritize maximizing the \emph{usefulness} of the
-application in the distributed setting during the migration.
-
-\TODO{we explore these more in the evaluation section (how to define usefulness)}
 
 \section{Programming model}
 \label{sec:platform}
@@ -718,7 +602,7 @@ ideally transition to a ``pre-transfer'' mode after the initial migration
 initiation. In this phase the application will try to do mostly read-only
 accesses to avoid dirtying too many pages as this will cause the migration
 to be done less efficiently with more pages that need to be transferred twice.
-Section \ref{sec:api} had discussed this in detail and \ref{sec:conform} will
+Section \ref{sec:api} discusses this in detail and \ref{sec:conform} will
 discuss how this model fits naturally in C++ programs.
 
 After the application clears the migration, effectively promising to never
@@ -847,3 +731,6 @@ which address to create the migration pointer.
 % }
 % \TODO{destination must quickly be able to reference the object i.e. send the
 % object page first}
+
+% \TODO{to design an application level (layer 7) router: add buffer to write additional things, initiate migrate, finish processing, hand over,
+% resulting in next to no latency}
