@@ -1,8 +1,16 @@
 \chapter{Design of Slope}
 \label{chap:design}
 
-\TODO{one/two summarizing paragraphs}
+First in the computation model section we speculate what the api would look like
 
+Introduce possible use cases of such a platform in distributed applications
+
+from this we can come up with design goals and important performance metrics
+and hints at the places where we need to be careful
+
+We then discuss migration and show how it satisfies the above
+
+Then discuss core migration algorithm
 
 \ANGELA{
 Provide overview of the Slope platform before diving into the details of programming model and architectural design.
@@ -19,18 +27,37 @@ talk over network,
 
 
 \section{Computation model and API}
+\label{sec:api}
+migratable objects are swarm-like types, not singletons
+
+We want to be able to transform from A to B. Figure
+\ref{fig:designgoalspluggable} shows how this idea will be look like on a high
+level. Generally a requirement for routing the requests will be introduced.
+
+\begin{figure}[t]
+\centering
+
+\ensurepdffromsvg{design-goals-pluggable.drawio}
+\includegraphics[width=0.5\textwidth]{design-goals-pluggable.drawio}
+\caption{
+    Slope allows the already partitioned units of
+    data/computation to be migrated across machines.
+}
+\label{fig:designgoalspluggable}
+\end{figure}
+
+
 \subsection{A section on how useful the programming model is}
 E.g. what data structures can be used naturally in this model
 Moved here from evaluation section
 \subsection{Multi-threading support}
 
+describe the \texttt{run()} function and describe the ``thread of execution''.
 \TODO{...}
-describe the \texttt{run()} function.
 
 describe threading model
 
 \TODO{figure for per core and how threads interact with them}
-\TODO{incomplete.}
 
 \TODO{fill}
 Fundamentally every server has to be able to host an incoming object.
@@ -48,9 +75,10 @@ already been made.
 
 
 \subsection{state machine}
+task with gpu/accelerator friendly component
 
 \subsection{listen and serve}
-
+distributed key-value store
 
 
 \section{Design goals}
@@ -62,18 +90,25 @@ operations, across their instances.
 The most important design goal of Slope is being pluggable in existing
 applications which work with their data in a partitionable way. That means if
 the system designer has already come up with a way to partition
-application data and computation into units that can be run independently on a
-single machine, the task of integrating Slope into the system to make its data
+application data and computation into units that can be run independently on 
+possibly different machines, the task of integrating Slope into the system
+to make its data
 structures or more complex computation units migratable should be trivial.
 
 To be more specific, we aim for zero modification to the internals of the
-application and minimal addition to the API of the computation unit to
-correctly define its behavior during its life cycle in Slope.
+application and minimal addition to the API of the computation units just to
+correctly define their behavior during their life cycle in Slope.
 
 The migration delay which we define as the elapsed time since the start of the
 migration of an object until it is successfully migrated is an important
-performance metric in Slope. However, directly measuring this duration may fail
-\CHECK{to reflect} how the migration process impacts the application. Some
+performance metric in Slope. Clearly any application will prefer a smaller
+end-to-end migration delay if every other metric is left unchanged. In contrast,
+exceedingly large migration delays will interfere with the performance of
+virtually all applications.
+
+However, directly measuring this duration and pursuing its optimization
+as the main performance goal may fail
+\CHECK{} to reflect how the migration process impacts the application. Some
 applications may prioritize responsiveness and would trade off some of their
 throughput during the migration process to keep their tail latencies low.
 Similarly an application may choose the opposite or any scenario in the middle.
@@ -83,27 +118,15 @@ as a result of the migration. Therefore while there is value in keeping the
 migration delay small, we prioritize maximizing the \emph{usefulness} of the
 application in the distributed setting during the migration.
 
-\begin{figure}[t]
-\centering
-
-\ensurepdffromsvg{design-goals-pluggable.drawio}
-\includegraphics[width=0.5\textwidth]{design-goals-pluggable.drawio}
-\caption{
-    Slope allows the already partitioned units of
-    data/computation to be migrated across machines. However a need for request
-    routing between the machines is introduced. This along with similar issues
-    will be discussed in \TODO{a future section}.
-}
-\label{fig:designgoalspluggable}
-\end{figure}
+\TODO{we explore these more in the evaluation section (how to define usefulness)}
 
 \section{Programming model}
 \label{sec:platform}
 
-Applications have to call into Slope to \CHECK{initiate and carry on} the
+Applications have to call into Slope to \CHECK{} initiate and carry on the
 migration operations. Since Slope requires intimate access to the application
-memory, we need to carefully define what applications are supported
-before discussing API and interactions.
+memory, we need to choose a low level platform with first class support for
+memory management.
 
 We have chosen C++ as the platform to implement Slope, mainly because we need
 to directly access process memory and manage the way it is allocated and used.
@@ -111,112 +134,7 @@ Whether or not these limitations can be eliminated, for example by using Slope
 as a service or like a sidecar process, as opposed to a library are future
 research directions.
 
-On the flip side, as a result of the Applications conforming to the C++
-allocation model which is used throughout the language and the standard
-template library, much of existing C++ code can be quickly made
-migratable through Slope. STL containers for example, can be made migratable
-as long as they are given Slope's allocator for their allocator type parameter.
-Figures \ref{fig:stdvector} and \ref{fig:migvector} demonstrate this.
 
-\TODO{t placement completely messes up the layout I have in mind and ht won't make things any better}
-
-\begin{figure}[t]
-\begin{alltt}
-template<
-    typename T,
-    \textbf{typename Allocator = std::allocator<T>}
-> class vector;
-\end{alltt}
-\label{fig:stdvector}
-\caption{
-    Declaration of std::vector in the STL. As well as the element type \texttt{T},
-    std::vector accepts an allocator class, set to \texttt{std{::}allocator<T>} by
-    default. The allocator class will be used for all allocations of type T.
-    By passing in a specific allocator class, the user can control where the
-    memory that underlies the vector is allocated from.
-}
-\end{figure}
-
-
-
-\begin{figure}[t]
-\begin{alltt}
-template<typename T>
-using migratable_vector = std::vector<T, slope::memory::Allocator<T>>;
-
-\end{alltt}
-\caption{
-\texttt{migratable\_vector<T>} wraps \texttt{std{::}vector<T, Allocator<T>>}, setting
-its allocator type to one that Slope provides. Objects of type
-\texttt{migratable\_vector<T>} are migratable as a result.
-}
-\label{fig:migvector}
-\end{figure}
-
-
-
-
-
-\begin{figure}[t]
-\begin{alltt}
-template<typename T, typename Allocator>
-class UserDefinedType \{
-  static inline Allocator allocator;
-  std::vector<T, Allocator> vector_;
-  T *ptr_;
- public:
-  template<typename... Args>
-  UserDefinedType(Args&&... args):
-    ptr_(\textbf{new (allocator.allocate(1))} T(std::forward<Args>(args)...)) \{ \}
-  // ...
-\};
-\end{alltt}
-\caption{
-Similar to the case with \texttt{std{::}vector<T, Allocator>},
-\texttt{UserDefinedType<T, Allocator>} support being used as a migratable
-    entity since it can work
-with a supplied allocator that conforms to C++ allocator named requirement.
-Furthermore, notice how the user defined type passes the allocator type parameter
-to a member \texttt{std{::}vector}, demonstrating composition-friendliness, a
-useful behavior for the application developer.
-}
-\end{figure}
-
-
-\begin{figure}[t]
-\begin{alltt}
-using MigratableUserDefinedType =
-    UserDefinedType<T, slope::memory::Allocator<T>>;
-\end{alltt}
-\caption{
-    \texttt{MigratableUserDefinedType} is the migratable version of
-    \texttt{UserDefinedType}. There is neither need for modifications to
-    \texttt{UserDefinedType}, nor for \texttt{UserDefinedType} to know
-    beforehand that it will have been used this way.
-    \ANGELA{Use horizontal line to separate figures} \TODO{Does this line do it?}
-}
-\centerline{\rule{16cm}{0.4pt}}
-\bigskip
-\end{figure}
-
-
-
-\TODO{introduce what we gain from the custom allocator: At any point in time,
-we know this and that about each object. details are discussed in forward ref
-implementation section}
-\TODO{We track all memory the object allocates + figure which shows the memory
-of the object and what it points to all fall in the migratable memory}
-
-\section{Architecture}
-At a high level, Slope consists of \TODO{Update to quickly introduce} a control plane, a data plane,
-a specialized distributed memory management
-scheme/implementation, and a migration protocol
-built on top
-of the above. We have implemented the control plane and the data plane using
-RDMA over Infiniband because of how well the benefits of RDMA networking
-fit our problem specifications, but the APIs which the \TODO{two}
-sub-systems expose are not dependent on how RDMA works or how their internals
-are implemented.
 
 \subsection{Local memory layout}
 Before we can discuss the main components of Slope, we need to discuss how
@@ -320,7 +238,124 @@ int main() \{
 
 
 
+
+
+
+\begin{figure}[t]
+\begin{alltt}
+template<typename T, typename Allocator>
+class UserDefinedType \{
+  static inline Allocator allocator;
+  std::vector<T, Allocator> vector_;
+  T *ptr_;
+ public:
+  template<typename... Args>
+  UserDefinedType(Args&&... args):
+    ptr_(\textbf{new (allocator.allocate(1))} T(std::forward<Args>(args)...)) \{ \}
+  // ...
+\};
+\end{alltt}
+\caption{
+Similar to the case with \texttt{std{::}vector<T, Allocator>},
+\texttt{UserDefinedType<T, Allocator>} support being used as a migratable
+    entity since it can work
+with a supplied allocator that conforms to C++ allocator named requirement.
+Furthermore, notice how the user defined type passes the allocator type parameter
+to a member \texttt{std{::}vector}, demonstrating composition-friendliness, a
+useful behavior for the application developer.
+}
+\label{fig:userdefinedtype}
+\end{figure}
+
+
+\begin{figure}[t]
+\begin{alltt}
+using MigratableUserDefinedType =
+    UserDefinedType<T, slope::memory::Allocator<T>>;
+\end{alltt}
+\caption{
+    \texttt{MigratableUserDefinedType} is the migratable version of
+    \texttt{UserDefinedType}. There is neither need for modifications to
+    \texttt{UserDefinedType}, nor for \texttt{UserDefinedType} to know
+    beforehand that it will have been used this way.
+    \ANGELA{Use horizontal line to separate figures} \TODO{Does this line do it?}
+}
+\label{fig:migratableuserdefined}
+\centerline{\rule{16cm}{0.4pt}}
+\bigskip
+\end{figure}
+
+
+\subsubsection{benefits of the custom allocator}
+
+\TODO{introduce what we gain from the custom allocator: At any point in time,
+we know this and that about each object. details are discussed in forward ref
+implementation section}
+\TODO{We track all memory the object allocates + figure which shows the memory
+of the object and what it points to all fall in the migratable memory}
+
+
+
+
+\TODO{
+On the flip side, as a result of the Applications conforming to the C++
+allocation model which is used throughout the language and the standard
+template library, much of existing C++ code can be quickly made
+migratable through Slope. STL containers for example, can be made migratable
+as long as they are given Slope's allocator for their allocator type parameter.
+Figures \ref{fig:stdvector} and \ref{fig:migvector} demonstrate this.
+}
+
+
+\begin{figure}[t]
+\begin{alltt}
+template<
+    typename T,
+    \textbf{typename Allocator = std::allocator<T>}
+> class vector;
+\end{alltt}
+\caption{
+    Declaration of std::vector in the STL. As well as the element type \texttt{T},
+    std::vector accepts an allocator class, set to \texttt{std{::}allocator<T>} by
+    default. The allocator class will be used for all allocations of type T.
+    By passing in a specific allocator class, the user can control where the
+    memory that underlies the vector is allocated from.
+}
+\label{fig:stdvector}
+\end{figure}
+
+
+
+\begin{figure}[t]
+\begin{alltt}
+template<typename T>
+using migratable_vector = std::vector<T, slope::memory::Allocator<T>>;
+
+\end{alltt}
+\caption{
+\texttt{migratable\_vector<T>} wraps \texttt{std{::}vector<T, Allocator<T>>}, setting
+its allocator type to one that Slope provides. Objects of type
+\texttt{migratable\_vector<T>} are migratable as a result.
+}
+\label{fig:migvector}
+\end{figure}
+
+\TODO{applications can also easily create their own migratable types.
+\TODO{bringing your own memory allocator does not make much sense}
+\ref{fig:userdefinedtype}}
+
+
+\TODO{done benefits of the custom allocator}
+
+
+\subsubsection{keeping track of allocations}
+\label{subsec:trackallocations}
+
+
 \section{RDMA background}
+before we can dive into the architecture we need to see why rdma is useful.
+This is an overview of the features we use and we do not mention what we do
+not use.
 
 discuss connection types
 
@@ -328,10 +363,27 @@ we use RC
 
 discuss WR's and CQE's
 
-discuss pinning
+discuss pinning, virtual to physical memory mapping
+
+rendezvous, rts
+
+
+\section{Architecture}
+At a high level, Slope consists of \TODO{Update to quickly introduce} a control plane, a data plane,
+a specialized distributed memory management
+scheme/implementation, and a migration protocol
+built on top
+of the above. We have implemented the control plane and the data plane using
+RDMA over Infiniband because of how well the benefits of RDMA networking
+fit our problem specifications, but the APIs which the \TODO{two}
+sub-systems expose are not dependent on how RDMA works or how their internals
+are implemented.
+
 
 
 \subsection{Control plane}
+\TODO{control plane consists of functions such as distributed allocator,
+migrate, etc.}
 \ANGELA{RDMA too low level too soon Provide table of the control plane operations. Describe at a high level the communications over the control plane, then say how this is done using the RDMA framework.}
 Control plane provides an abstraction over which application instances can
 execute migration operations and other side-tasks including distributed
@@ -366,12 +418,12 @@ performance.
 
 For co-ordination between machines (e.g. rendezvous protocol and transition
 to ready to send state)
-an out of band communication mechanism has to be used. We use memcached as
+an out of band communication mechanism has to be used. We use memcached where 
 every node registers its queue pair and memory region parameters and
 information and waits to receive the same information from its peers. This
 phase only runs early in the program and does not have an effect on the
 performance of the system after the initialization is finished, at which point
-we can also take away the memcached server.
+we no longer need the memcached server.
 
 \subsection{Data plane}
 
@@ -427,7 +479,7 @@ of Slope at different stages during the above timeline.
 
 \subsubsection{Object creation}
 During this phase the source machine calls into the Slope library multiple
-times, based on how many times memory allocation and deallocation required.
+times, based on how many times memory allocation and deallocation is required.
 
 \paragraph{Source} creates a migratable object. Let us call this object
 the target object. Up until the point that
@@ -445,11 +497,17 @@ of the object, which may result in further calls to the memory allocator as
 the object might need to allocate memory to process its incoming requests or
 carry out the calls to its member functions. These new allocations will be
 correctly picked up by Slope allocator given that allocation contexts are used
-as discussed in \ref{subsec:trackallocations}. \TODO{This means}
+as discussed in \ref{subsec:trackallocations}, meaning at any point in time we
+know which memory pages belong to the target object.
 
 \subsubsection{Migration initiation}
 The application logic decides that the target object must be migrated from the
-source machine to the destination. This is the first time that the destination
+source machine to the destination. This might happen because the source machine
+is balancing out its load by offloading the object to the destination or because
+this particular object will benefit from running on the destination machine
+by being local to resources that are available there.
+
+This is the first time that the destination
 machine will need to know about the properties of the target object. Had the
 source machine not initiated the migration, the destination machine would have
 stayed unaware of the existence of this object.
@@ -457,15 +515,19 @@ stayed unaware of the existence of this object.
 \paragraph{Source}
 initiates the migration by calling into Slope. From this point
 on, the application instance on the source machine is neither allowed to
-allocate more memory to the object by calling into the allocator using
-an allocation context from this object, nor can it deallocate any memory that
-this object references. This means the underlying memory of this object is now
+cause any memory to be allocated to the target object, nor can it deallocate any memory that
+this object references. Each of these can result from calling member functions
+of the target object which either deallocate Slope memory previously held by the
+object, or create Slope memory allocation contexts from the object and
+use them to allocate Slope memory for the object.
+
+This means the underlying Slope memory owned by this object is now
 fixed. The application can continue to read or write to the memory that the
 object already owns, until further on in the process when it receives a
 notification from the Slope library. This notification signals that source
 machine no longer owns the object, prohibiting this machine from any
 interaction with the target object, including reading from or writing to its
-memory. This will be discussed in detail in the following paragraphs.
+memory. This will be discussed in detail in the following sections.
 
 Slope posts a send request to the QP that is shared
 between the source and the destination, initiating the migration.
@@ -484,18 +546,21 @@ that underlie the target object. We switch to a different QP
 to allow concurrent migrations to happen between pairs of nodes. The destination
 then goes on to notify the source that it can receive the description of the $n$
 pages. The destination needs to know the page addresses
-to first associate them with physical memory pages and then pin them down so that their
-physical address will stay the same throughout the migration while the network
+to first create mappings for them and then pin them in physical memory so that their
+physical address will stay the same throughout the migration, while the network
 device writes to the pages by their physical address over DMA.
 
 \paragraph{Source} receives the clear to send from the destination and sends the starting address
-of each of the $n$ pages.
+of each of the $n$ pages to the destination. 
 
 \paragraph{Destination} waits for $n$ page addresses, and for each one of them, pins the
 corresponding page in physical memory, so that the addresses that underlie the
-target object can be used in RDMA read and write verbs. Notice how pinning the
-whole Slope memory to physical memory will not work as it will well exhaust the
-available physical memory on each node. When the $n$ pages are pinned
+target object can be used in RDMA read and write verbs. Notice how
+``pro-active'' strategies which do not require knowledge of the page addresses
+will not work, as pinning the
+whole Slope memory in the physical memory will in the worst case, exhaust the
+available physical memory on some nodes, and in the best case, result in large
+amounts of wasted physical memory space. When the $n$ pages are pinned
 and are ready to be the target of the RDMA verbs, the destination responds back,
 signaling that it has pinned all of the required pages.
 
@@ -503,53 +568,120 @@ signaling that it has pinned all of the required pages.
 The goal of the prefill phase is to warm up the destination machine's memory to
 minimize the window of time during which none of the two participating machines
 own the target object. No machine can read from or write to the object during
-that time and not keeping it brief will create long hiccups during which the
-application performance completely freezes. During the prefill phase we
-optimistically copy the target object to the destination over RDMA. Note that
-the source is still allowed to write to any location in the target object
-memory, despite not having permission to change the memory layout of the object
+that time. Therefore a long window without no owners means a long throughput
+and latency hiccup as the application does not make any progress.
+
+During the prefill phase we copy the target object to the destination over RDMA.
+What makes it different from simply transferring the contents of memory is that
+during the prefill operation, the source is still allowed to write to
+any location in the target object memory,
+despite not having permission to change the memory layout of the object
 in any way by allocating or deallocating memory. We optimistically do the above
 transfer knowing that some of the pages might need to be retransferred as they
-are written to by the source machine after they are sent to the destination
+are written to by the source machine after they are sent to the destination.
 We will refer to these pages as dirty pages. While pages can be
-dirtied, we do the prefill hoping that one of the
+dirtied, we go through the prefill phase, hoping that one of the
 machines (namely the source machine) will be able to partially function during
-the transfer of many of the pages who will end up being clean after we finish
-this phase.
+this phase, while dirtying a small percentage of the pages.
 
 \paragraph{Source} will need to loop through the memory pages of the target
 object to prepare them to be read safely by the network device. It will then
 need to use RDMA WRITE to send them to the destination, but before it is ready
 to go through these, it must put in place the means to detect the pages that
-are dirtied by writes that take place after they are sent away.
+are dirtied. A page will be dirtied when a write takes place in it, after
+it is sent to the destination.
 
-The source overrides the default behavior of \texttt{SIGSEGV}, using a call to
-\texttt{sigaction} to prevent the program from terminating on invalid memory
-references, and only clears the delivery of this signal on a particular
-signal handler thread.
+\subparagraph{Dirty page detection:}
+This will be done using memory mapping protections and manually
+handling signals that
+are raised as a consequence of accesses to the protected memory pages.
+
+First, the source overrides the default behavior of handling the
+\texttt{SIGSEGV} signal using a call to
+\texttt{sigaction}, to prevent the program from terminating on invalid memory
+references. It is important to keep in mind that \texttt{SIGSEGV} is delivered
+to the \emph{same} thread whose current instruction reads or writes memory
+from a page that does not have the required permissions.
+
+To synchronize the access to the pages of the target object,
+we set the protection flags of each page to \texttt{PROT\_READ} before sending
+it over RDMA. This prevents any writes from happening while RDMA WRITE
+is in progress. These writes will result in a \texttt{SIGSEGV} signal being
+raised because of an invalid memory reference, and the thread will start
+executing our custom \texttt{SIGSEGV} handler.
+
 Inside the signal handler, we make note of the address the access
-to which had caused the signal to be raised. Assuming this is an address in a
+to which caused the signal to be raised. This can be found in the
+\texttt{si\_addr} field from the
+\texttt{struct {*}siginfo\_t} which is passed to the handler.
+Assuming this is an address in a
 page that the target object owns, we mark the page containing the address as
-dirty. If the RDMA WRITE corresponding to this page had previously finished, we
-update the protection flags of this page back to \texttt{PROT\_READ | PROT\_WRITE}
-to allow further writes to the address in this page to succeed. Otherwise we
-return from the signal handler. The signal handler will possibly be called
-again because of another invalid access by the thread that raised the above
-signal, running the same instruction in ran previously. However we will return
-from the signal handler without further action enough times for the RDMA SEND
-to succeed, at which point the corresponding page will be marked as prefilled
-by another thread which will not be interrupted by the signal handler. The first
-signal raised after finishing the RDMA SEND will put the \texttt{PROT\_WRITE}
-flag back into the protection flags of the page. Up until this point, any thread
-trying to write to the current page will block, because they will repeatedly raise
-a \texttt{SIGSEGV}, but these threads will eventually be able to continue their
-execution once the thread which carries out the migration eventually makes
-progress, allowing the signal handler to reset the write permission flag of the
+dirty. In the simplest case, the RDMA WRITE corresponding to this page has
+previously finished. We update the protection flags of this page back
+to \texttt{PROT\_READ | PROT\_WRITE}
+to allow further writes to the addresses in this page to succeed.
+
+Otherwise the RDMA WRITE is still in progress in which case we need to be
+more careful. In this case we need to wait for the
+RDMA WRITE to finish before adding the \texttt{PROT\_WRITE} permission flag to
+the page. In our
+implementation we use a conditioned shared mutex where the thread which carries
+out the RDMA operations is the writer and the threads that may call into the
+signal handler are potential readers. As a result, each thread will will block
+inside the signal handler until
+the address to which they are trying to write acquires the correct permission.
+Figure \ref{fig:dirtydetection} shows the execution flow of multiple threads
+as each of them they fall into one of the above cases while Slope prefills a
 page.
 
-\TODO{Holy cow. Add diagram}
+\begin{figure}[t]
+\centering
 
-Notice that this cannot be correctly enforced by means such as setting the
+\ensurepdffromsvg{dirty-detection.drawio}
+\includegraphics[width=1\textwidth]{dirty-detection.drawio}
+\caption{
+    Execution flow of different application threads during the migration of
+    the 4KB page at \texttt{0xc000} which at some point in time becomes dirtied.
+    Time progresses downwards and the prefill has been started before all of
+    the events in the figure. Notice how thread t2 coincidentally never
+    deviates from its happy path.
+}
+\label{fig:dirtydetection}
+\end{figure}
+
+\subparagraph{Preparation:} At this point in the process, the source still
+has ownership over the target object memory. This means we need to coordinate
+the access to these pages to prevent simultaneous reads and writes. To do this,
+the source uses \texttt{mprotect} to make the current page read-only.
+Semantically, the application is still allowed to write to the current page,
+except when the RDMA SEND is happening.
+
+\subparagraph{Send:} Each page is posted to a data plane QP shared between the
+source and the sink, to be written to its corresponding virtual address in
+destination over RDMA. Notice that we do not put the \texttt{PROT\_WRITE} permission
+of the current page back after the RDMA SEND finishes, as we need to
+detect any future writes which will dirty the page.
+However we do set a condition variable which a threads running the signal
+handler will check to know whether or not it is clear to put the \texttt{PROT\_WRITE} flag back.
+At any point in time the clean pages will have their condition variable unset,
+which is how we distinguish between the dirty and clean pages.
+
+One by one, the source prepares and writes each page that the target object
+owns, using the above procedures and keeps track of which of them is dirtied
+over time.
+
+\subsubsection{Transfer of ownership}
+
+\TODO{HEEEEEEEEEEEEEEEEEEEEEEERE}
+
+Contrary to case of detecting the pages that become dirty, which can be done
+as described above, prevention of this phenomenon cannot be dealt with this way.
+For example we may try to set texttt{PROT\_NONE} permission on a page to
+prevent accesses to it after we have started to send it to the destination.
+The reason why this will not work will be discussed in the next section.
+
+
+This cannot be correctly enforced by means such as setting the
 \texttt{PROT\_NONE} on these pages. First, we might need multiple
 \texttt{mprotect} calls to accomplish this if the pages are not adjacent,
 meaning that we cannot assume the access to the object is ceased at a single
@@ -563,65 +695,56 @@ from the standpoint of the library, we do not have enough information to deal
 with cases similar to these, as aside from detecting the illegal writes, there
 is no right action to take to remedy them.
 
-\TODO{figure?}
+\TODO{HEEEEEEEEEEEEEEEEEEEEEEERE}
 
-One by one, the source prepares and writes each page that the target object owns,
-using the above process to keep track of which of them will be dirty at the end
-of the process.
-
-\subparagraph{Preparation:} At this point in the process, the source still
-has ownership over the target object memory. This means we need to coordinate
-the access to these pages to prevent simultaneous reads and writes. To do this,
-the source uses \texttt{mprotect} to make the current page read-only.
-Semantically, the application is still allowed to write to the current page,
-except when the RDMA SEND is happening.
-
-\subparagraph{Send:} Each page is posted to a data plane QP shared between the
-source and the sink, to be written to its corresponding virtual address in
-destination over RDMA. Notice that we do not put the \texttt{PROT\_WRITE} permission
-of the current page after we are finished with this operation, as we need to
-detect any future writes. However we do set a flag that the signal handler will
-check to be notified that it is clear to put the \texttt{PROT\_WRITE} flag back.
-The clean pages will have their \texttt{PROT\_WRITE} flag unset at the end of
-the migration.
-
-
-\subsubsection{Transfer of ownership}
-During this phase we are ready to turn the ownership over to the destination.
+\label{sec:transferownership}
+At this point we are ready to turn the ownership over to the destination.
 We also have to notify the application at the source to stop referencing the
-target object before we can proceed.
+target object for both reads and writes before we can proceed.
 
-\paragraph{Destination} receives the completions for the prefill writes which
-had been done with immediate values. After it is receives the completion of the
+\paragraph{Destination} receives the completions for the prefill RDMA WRITEs.
+That is because those WRITEs are done with immediate values which will results
+in completion entries to be created for them. After the destination
+receives the completion of the
 last SEND, it will send a request back to the source, asking the source to
 finally give up the ownership of the object.
 
 \paragraph{Source} calls back to the application upon receiving the above
 message to make sure the application will not reference the target object
-past this point. This is done by calling a callback function which will block
-until the application notifies all of its threads that reference the target
-object and wait for them to clear the ownership transfer. They will in turn
-finish their calls into the object and remove global references that exist
-to it. After the application clears the migration, Slope will use the dirty
-page tracking data to find the dirty pages and send them to the destination,
-along with the ownership of the target object.
+for either of reads or writes after the callback returns. The application is
+therefore responsible to block the callback an notifies all of its threads to
+finish their ongoing operations on the target object. The application will
+ideally transition to a ``pre-transfer'' mode after the initial migration
+initiation. In this phase the application will try to do mostly read-only
+accesses to avoid dirtying too many pages as this will cause the migration
+to be done less efficiently with more pages that need to be transferred twice.
+Section \ref{sec:api} had discussed this in detail and \ref{sec:conform} will
+discuss how this model fits naturally in C++ programs.
+
+After the application clears the migration, effectively promising to never
+reference the target object again, Slope will use the dirty
+page tracking data to identify the dirty pages and send their addresses
+to the destination. This message will also hand over the ownership
+of the target object to the destination.
 
 \paragraph{Destination} is notified that it has been given the ownership of
 the object and is clear to start the \texttt{run()} method of the object,
 but also needs to re-pull the dirty pages whose address is attached to the
-request.
-Slope starts the above two processes concurrently. We first set 
+request since the contents of these pages on the destination machine are
+outdated.
+Slope starts the above two processes concurrently. The destination machine
+first sets
 \texttt{PROT\_READ | PROT\_WRITE} access for the clean pages and
-\texttt{PROT\_NONE} for the dirty pages. We use a priority queue to fetch the
-dirty pages, giving precedence to the pages which result in a
+\texttt{PROT\_NONE} for the dirty pages. We put the dirty page addresses into 
+a priority queue and fetch them from the source machine in order, giving
+precedence to the pages which result in a
 \texttt{SIGSEGV} being raised at the destination from an access by the
-application, meaning that they are immediately required, and the read and write
-protections will set when their transfer is complete. This might happen
-because parallel to the above, we register the object
-in the memory allocator, so that future allocations or deallocations will
-succeed and allocation contexts will work as expected. At this point The
-object's \texttt{run()} method will be called, possibly resulting in
-\texttt{SIGSEGV}s being raised which are dealt with as described above.
+application. This means that the page has \texttt{PROT\_NONE} permission set and
+is immediately required by an application thread. When the page is pulled using
+RDMA READ, the page mapping flags will be updated to include read and write
+permissions and any thread waiting for those pages can proceed. This is done
+similar to how we do the dirty page detection on the source machine which was
+discussed earlier.
 
 \subsubsection{Post-transfer}
 After the transfer is done, the state of the application will be
@@ -630,21 +753,29 @@ the destination machine from the start, if we deal with one final housekeeping
 task.
 
 \paragraph{Destination} will notify the source that it has READ all of the
-dirty pages and that we no longer need the destination to keep track of the
-state of the object at the moment before the ownership is turned over.
+dirty pages and that it no longer needs the destination to keep the
+pre-transfer content of the object memory.
 
 \paragraph{Source} will wait to receive the above message at which point it
-can safely \texttt{unmap} the memory underlying the ``old'' target object. At
+safely \texttt{munmap}s the memory underlying the ``old'' target object. At
 this point the state on the source looks as if the said object had never existed
 there.
+
+
+\section{Conformance to C++ language terminologies}
+\label{sec:conform}
+e.g. const, mutable, const cast
+
+
+\section{Optimizations and Corner cases}
+e.g. have to send the location of the object itself also: from
+which address to create the migration pointer.
 
 
 % \section{Implementation}
 % \TODO{incomplete}
 % We keep a thread local context stack which keeps track of the owner of each memory allocation. \TODO{Sequence diagram-like figure, denoting the ownership stack next to the function activation record stack of the thread}.
 % 
-% \subsection{keeping track of allocations}
-% \label{subsec:trackallocations}
 % 
 % \TODO{fill}
 %   procedures which allocate memory to or deallocate memory from the data structure. Typically all const qualified methods in c++ 
@@ -714,3 +845,5 @@ there.
 % but what about non-adjacent pages? we have to make multiple calls to mprotect to
 % first set them to NON and then continue.
 % }
+% \TODO{destination must quickly be able to reference the object i.e. send the
+% object page first}
