@@ -62,7 +62,7 @@ class FullMeshQpSet {
   FullMeshQpSet(const IbvCreateCq& cq);
   std::vector<QpInfo> prepare(const std::string& excl,
     const std::vector<std::string>& nodes, const IbvAllocPd& pd,
-    struct ibv_port_attr& port_attrs);
+    struct ibv_port_attr& port_attrs, const struct ibv_device_attr& dev_attrs);
   void finalize(const std::vector<QpInfo>& remote_qps);
 
   const IbvCreateCq& cq_;

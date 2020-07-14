@@ -72,7 +72,7 @@ RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
     for(auto set_name: qp_set_keys) {
       fullmesh_qps_.try_emplace(set_name, get_cq(set_name));
       auto qps = fullmesh_qps_[set_name].prepare(self_name_,
-          cluster_nodes_, global_pd_, operating_port_attr_);
+          cluster_nodes_, global_pd_, operating_port_attr_, dev_attrs_);
       all_qps[set_name] = qps;
     }
 
@@ -294,7 +294,7 @@ FullMeshQpSet::FullMeshQpSet(const IbvCreateCq& cq): cq_(cq) {
 
 std::vector<QpInfo> FullMeshQpSet::prepare(const std::string& self_name,
     const std::vector<std::string>& nodes, const IbvAllocPd& pd,
-    struct ibv_port_attr& port_attrs) {
+    struct ibv_port_attr& port_attrs, const struct ibv_device_attr& dev_attrs) {
 
   std::vector<QpInfo> ret;
 
@@ -307,9 +307,9 @@ std::vector<QpInfo> FullMeshQpSet::prepare(const std::string& self_name,
     struct ibv_qp_init_attr qp_init_attr = {};
     qp_init_attr.send_cq = cq_.get();
     qp_init_attr.recv_cq = cq_.get();
-    // qp_init_attr.cap.max_send_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr;
+    qp_init_attr.cap.max_send_wr = static_cast<uint32_t>(dev_attrs.max_qp_wr);
     qp_init_attr.cap.max_send_wr = 1024;
-    // qp_init_attr.cap.max_recv_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr);
+    qp_init_attr.cap.max_recv_wr = static_cast<uint32_t>(dev_attrs.max_qp_wr);
     qp_init_attr.cap.max_recv_wr = 1024;
     qp_init_attr.cap.max_send_sge = 20;
     qp_init_attr.cap.max_recv_sge = 20;
