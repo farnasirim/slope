@@ -9,6 +9,8 @@ meet the storage and computation requirements of these workloads. Therefore
 designing systems that can scale across many machines becomes important as
 resource requirements increase over time.
 
+\ANGELA{Be more concrete, for example here. Locality and load balancing are
+both goals.}
 In a distributed application, data access locality is a performance goal
 and load balancing is a closely related condition.
 As the workloads of the distributed applications grow, the application
@@ -44,6 +46,7 @@ distributed evenly on multiple machines.
     communication with other partitions.
 
     \subparagraph{Web application user behavior statistics:} We can partition
+    \ANGELA{point out that this is a big table like scenario}
     the data and the supported operations (append user action,
     query user actions, etc.) by user IDs.
     For most of

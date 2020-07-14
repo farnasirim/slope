@@ -9,18 +9,18 @@ The functional and performance requirements of this computation model will
 ask for certain features from a hypothetical migration framework. As the
 takeaway from this chapter we will infer the goals that we must pursue
 in designing Slope to address those requirements.
+%
+%speculate api
+%
+%possible usecases in distributed applications
+%
+%design goals and important metrics
+%
+%where do we need to be careful
 
-speculate api
-
-possible usecases in distributed applications
-
-design goals and important metrics
-
-where do we need to be careful
-
-say these are the things we need to do, lay out some requirements,
-balance tradeoffs (e.g. access at source vs how quickly do the mig,
-track allocs
+% say these are the things we need to do, lay out some requirements,
+% balance tradeoffs (e.g. access at source vs how quickly do the mig,
+% track allocs
 
 \section{Migration-friendly applications}
 Distributed applications refer to a large family of applications with
@@ -56,9 +56,10 @@ in a transaction processing system.
 \includegraphics[width=0.5\textwidth]{design-goals-pluggable.drawio}
 \caption{
     The migration platform allows the already partitioned units of
-    data/computation to be migrated across machines. Application partitions
+    data/computation to be migrated across machines. \ANGELA{stop writing
+    paragraphs in captions. Application partitions
     are the self-sufficient, independent units of work and therefore the
-    migratable objects in this system.
+    migratable objects in this system.}
 }
 \label{fig:designgoalspluggable}
 \end{figure}
@@ -98,7 +99,29 @@ Therefore apart from the run-time load balancing benefit, the
     core of the application.
 
 
+\begin{figure}[tp]
+\centering
+
+\ensurepdffromsvg{migration-transport.drawio}
+\includegraphics[width=0.8\textwidth]{migration-transport.drawio}
+\caption{
+    Using a migration platform as the transport in a system with
+    application level routing/load balancing. The system needs to execute
+    the data parallel computation portion of each task on the machine
+    which has a GPU. A request/job is the
+    migratable element in this scenario. Each request is independent
+    from other requests. Each request is also self sufficient as its
+    state identifies what action and by which machine type must be
+    executed on the object. Each node executes its share of work
+    on the request object based on its current state, updates the state by
+    writing to the object memory, and migrates it to the next hop based
+    on the state.
+}
+\label{fig:migrationtransport}
+\end{figure}
+
 \subsection{Migratability as a transport}
+\ANGELA{Talk about the state machine directly, and focus on the positive}
 With certain performance qualifications, a migration framework can act as
 an intra-cluster transport. Example use cases for such a transport arise
 in application level (or layer 7 in OSI terms) routers in heterogeneous
@@ -266,6 +289,7 @@ the medium that will be used.
 
 
 
+\TODO{Use the listings package + bounding box}
 \begin{figure}[t]
 \begin{alltt}
 
@@ -395,13 +419,13 @@ class GpuTask \{
     void run() \{
         current_node_gpu = GpuDeviceHandle.open();
         ...
-        switch(current_state) {
+        switch(current_state) \{
             ...
             case gpu:
-              if(!current_node_gpu) {
+              if(!current_node_gpu) \{
                 // send itself to a machine with a gpu
-              }
-        }
+              \}
+        \}
     \}
 \};
 
@@ -429,10 +453,10 @@ int main() \{
     auto p = new HashTablePartition()
     HashTableControlPlane.accept(p);
 
-    if(machine_id == 0) {
+    if(machine_id == 0) \{
         p.suspend();
         HashTableControlPlane.send(machine_id=1, p);
-    }
+    \}
 \}
 
 
@@ -444,24 +468,3 @@ int main() \{
 \end{figure}
 
 
-
-\begin{figure}[t]
-\centering
-
-\ensurepdffromsvg{migration-transport.drawio}
-\includegraphics[width=0.8\textwidth]{migration-transport.drawio}
-\caption{
-    Using a migration platform as the transport in a system with
-    application level routing/load balancing. The system needs to execute
-    the data parallel computation portion of each task on the machine
-    which has a GPU. A request/job is the
-    migratable element in this scenario. Each request is independent
-    from other requests. Each request is also self sufficient as its
-    state identifies what action and by which machine type must be
-    executed on the object. Each node executes its share of work
-    on the request object based on its current state, updates the state by
-    writing to the object memory, and migrates it to the next hop based
-    on the state.
-}
-\label{fig:migrationtransport}
-\end{figure}

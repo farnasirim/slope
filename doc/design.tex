@@ -50,7 +50,7 @@ typically at boot time before memory fragmentation gets in the way.
 \ensurepdffromsvg{local-memory-management-phys-log.drawio}
 \includegraphics[width=1\textwidth]{local-memory-management-phys-log.drawio}
 \caption{
-    \TODO{Legend for white part too? = Not Slope memory? doesn't make sense.}
+    \TODO{Remove Slope Memory.}
     Placement of Slope memory within virtual memory address space on each node
     upon initialization.
     Notice how Slope memory is at the same location in the virtual address
@@ -671,7 +671,7 @@ over time.
 
 Contrary to case of detecting the pages that become dirty, which can be done
 as described above, prevention of this phenomenon cannot be dealt with this way.
-For example we may try to set texttt{PROT\_NONE} permission on a page to
+For example we may try to set \texttt{PROT\_NONE} permission on a page to
 prevent accesses to it after we have started to send it to the destination.
 The reason why this will not work will be discussed in the next section.
 
