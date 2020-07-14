@@ -309,58 +309,63 @@ asynchronous, meaning the application calls into the Infiniband library to
 such as the completion of a send request.
 
 To send data using the RDMA SEND verb, the application needs to ``post'' one
-or more Work Requests (WRs) to a QP. Each WR is consisted of one or more
-regions of memory that needs to send through a QP. Each of these
-is called a Scatter-Gatter Element (SGE), which together with several other
-parameters makes 
+or more send Work Requests (WRs) to the send queue of a QP. Among other fields
+to control its behavior, a WR is consisted of one or more
+continuous memory ranges that need to be sent through a QP. Each of these
+is called a Scatter-Gatter Element (SGE). However the network device must be
+able to access the memory pages that the SGEs point to through their physical
+addresses, and those physical addresses must not change throughout the time
+that the SEND is in progress. To make sure that is the case, the addresses
+that underlie the SGEs must be subsets of Memory Regions (MRs) that we
+explicitly register with the Infiniband library. Creating an MR from a set of
+continuous memory pages will pin them in memory until the MR is
+deregistered. To process the SEND request, the network device might reference
+addresses from MRs that the SGEs point to, until that particular WR is
+processed which means we are not allowed to write to those regions during
+the time SEND is being processed. By default, a successful SEND request will
+create a CQEs upon completion. The application can be notified of the completion
+of the SEND WR by polling the CQ that is associated with the QP. After receiving
+the completion, the application is free to deregister and/or write to the
+memory under the MR.
 
+For a SEND to succeed, the destination must have previously posted a suitable
+RECV request to the Receive Queue of its end of the QP. Similar to the case with SENDs,
+a RECV request takes the form of one or more receive WRs each of which
+consists of multiple SGEs, which point to local memory that is pinned using
+MRs. At the receiver, this will result in the data from the SGEs of the incoming
+SEND to be written by the network device to the memory addresses that the
+receive WR specifies through its SGEs.
 
-The polling needs to be done against on a Completion Queue (CQ) structure.
+Together, SEND and RECV are called two-sided verbs, meaning they require
+intervention from both the sender and the receiver. In contrast, the one-sided
+READ and WRITE verbs completely bypass the remote machine's processor and do not
+produce entries in the CQs of the remote machine. To
+issue a READ or WRITE, the caller must first pass SGEs referring to local memory
+from which data will be READ, or to which data will be written, respectively.
+In each of the above we must also specify an address in the remote machine
+as the source for READ or the destination for WRITE. This address is in
+the virtual address space of the remote machine, and must be contained in an
+MR. The caller also needs the know the remote key (\texttt{rkey}) of the target
+MR in the remote machine. Similar to the case with \texttt{lid} and
+\texttt{qp\_num}, the application has to arrange for the \texttt{rkey} to be
+transferred to the caller before it can call one sided VERBS. However with the
+QPs now established, we do not necessarily need to rely on an out of band
+communication mechanism to hand off \texttt{rkey}s as they can be sent using
+RDMA SEND and RECV verbs.
+
+We also use a variant of WRITE called ``WRITE with immediate values'', which
+differs to a WRITE in that it generates a completion in the CQ of the
+remote QP.
+
+To know about which operations have been completed, applications must poll the
+Completion Queue (CQ) structure.
 Each QP is associated with one CQ. Applications may decide that some of their
 QPs share a single CQ to reduce the number of separate structures that they
-have to poll.
-
-ibv_create_cq
-ibv_create_qp
-ibv_dealloc_pd
-ibv_dereg_mr
-ibv_destroy_cq
-ibv_destroy_qp
-ibv_dev
-ibv_device
-ibv_device_attr
-ibv_device_context_by_name_
-ibverbs
-ibv_free_device_list
-ibv_get_device_list
-ibv_gid
-ibv_modify_qp
-ibv_open_device
-ibv_poll_cq
-ibv_port_attr
-ibv_post_recv
-ibv_post_send
-ibv_qp
-ibv_qp_attr
-ibv_qp_attr_mask
-ibv_qp_init_attr
-ibv_query_device
-ibv_query_gid
-ibv_query_port
-ibv_recv_wr
-ibv_reg_mr
-ibv_send_wr
-ibv_sge
-ibv_wc
-
-discuss WR's and CQE's
-
-discuss pinning, virtual to physical memory mapping
-
-rendezvous, rts
+have to poll. As a result of polling the CQ, the application is handed
+Completion Queue Entries (CQEs) which reveal the source of the completion.
 
 
-\section{Architecture}
+\section{Architecture of Slope}
 At a high level, Slope consists of \TODO{Update to quickly introduce} a control plane, a data plane,
 a specialized distributed memory management
 scheme/implementation, and a migration protocol
