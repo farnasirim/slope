@@ -38,7 +38,7 @@ time (i.e. before \texttt{main()}) \CHECK{and we will refer to} call this sectio
 address space the migratable memory or Slope memory. Note that mappings for
 these pages are not yet generated and therefore the size of the Slope memory
 region can be expanded to the whole 64 bits of address on current machines.
-We will manage the slope memory by 4KB page granularity \CHECK{ as this is the
+We will manage the Slope memory by 4KB page granularity \CHECK{ as this is the
 smallest unit of control for setting the protection of memory mappings}.
 We do not use \TODO{discuss why you do not need contiguous physical memory}
 hugepages or contiguous physical memory as the former results in
@@ -243,13 +243,115 @@ its allocator type to one that Slope provides. Objects of type
 
 
 \section{RDMA background}
-before we can dive into the architecture we need to see why rdma is useful.
-This is an overview of the features we use and we do not mention what we do
-not use.
+RDMA programming model turns out to be a good fit for the networking
+requirements of Slope. While we do benefit particularly from
+offloading data plane processing from the source CPU to the network device,
+RDMA networking can still be swapped out of Slope for other transports.
 
-discuss connection types
+To send or receive data using kernel-based TCP, the application needs thread
+is woken up multiple times by the kernel and has to call into the kernel
+repeatedly, copying all of the payload between user and kernel space buffers.
+RDMA networking prevents this by 1. allowing data to be sent/received without
+the need to copy it from/to a temporary buffer, and 2. not calling into the
+kernel on the critical path.
 
-we use RC
+The following paragraphs introduce several concepts in RDMA
+networking from control structures to Infiniband verbs. To keep this section
+concise and on-point, we mostly describe the Infiniband features that are used
+in Slope and skip low level details such as the role of various configuration
+variables in the setup process.
+
+An Infiniband subnet consists of hosts and switches that are interconnected
+through their Infiniband adapters or Host Control Adapters (HCA).
+Each subnet requires at least one Subnet Manager (SM) to function.
+Infiniband switches or end hosts may play the role of SM. Multiple SMs
+work in Active-Stand by mode. Among more complicated tasks such as managing
+routing throughout the local subnet and possibly through the global Infiniband
+Fabric, one of the responsibilities of the SM is assigning unique local
+identifiers (\texttt{lid}s) to each port connected to the current subnet, not much
+different from how a DHCP server assigns unique IP addresses to each device
+that is connected to an IP network.
+
+Queue pairs (QPs) can be thought of as being analogous to sockets in TCP/IP
+networking. In our case we only use the reliable connected (RC) type of queue
+pairs which guarantees reliability and in-order delivery.
+A QP logically ``connects'' two hosts so that they can communicate using
+RDMA verbs. Each of the two hosts independently creates a QP structure. The
+QP is assigned a locally unique \texttt{qp\_num} to distinguish between the
+QPs on the same host. The two QP structures then have to be introduced to
+each other by transitioning them through multiple states, namely init, ready to
+receive, and ready to send.
+
+At certain points during these transition, each
+QP end needs to know about the \texttt{lid} of the remote Infiniband port to
+be able to identify and reach that port through the subnet. Naturally the
+remote \texttt{qp\_num} has to be known for each QP end to be able to
+distinguish and correctly select the target QP end's \texttt{qp\_num}.
+Applications need to improvise their own methods of exchanging these two
+pieces of information, typically called the out of band rendezvous and ready to
+send protocols. We use memcached for this where every participating machine
+registers the \texttt{lid} and \texttt{qp\_num} corresponding to each of its
+QPs, alongside the intended remote node of this QP under that machine's key.
+The number of machines and their registration keys
+are known at the execution time of the program by all instances. After
+publishing their information each machine goes through the keys corresponding
+to other servers and blocks until finding their QP information in memcached.
+After that each server $S$ selects the QPs whose intended remote node equals
+$S$ and with the \texttt{lid} and \texttt{qp\_num} of that QP at hand, it
+transitions the QP through the required states to make it ready to use. This
+only happens at the initialization of the cluster after which we never use
+the memcached instance again.
+
+From this point on, each machine can use any of its QPs to exchange data with
+the other end of the QP through the use of RDMA verbs. The QP APIs are
+asynchronous, meaning the application calls into the Infiniband library to
+``posts'' operations to the QPs, and ``poll'' the completion of certain events
+such as the completion of a send request.
+
+To send data using the RDMA SEND verb, the application needs to ``post'' one
+or more Work Requests (WRs) to a QP. Each WR is consisted of one or more
+regions of memory that needs to send through a QP. Each of these
+is called a Scatter-Gatter Element (SGE), which together with several other
+parameters makes 
+
+
+The polling needs to be done against on a Completion Queue (CQ) structure.
+Each QP is associated with one CQ. Applications may decide that some of their
+QPs share a single CQ to reduce the number of separate structures that they
+have to poll.
+
+ibv_create_cq
+ibv_create_qp
+ibv_dealloc_pd
+ibv_dereg_mr
+ibv_destroy_cq
+ibv_destroy_qp
+ibv_dev
+ibv_device
+ibv_device_attr
+ibv_device_context_by_name_
+ibverbs
+ibv_free_device_list
+ibv_get_device_list
+ibv_gid
+ibv_modify_qp
+ibv_open_device
+ibv_poll_cq
+ibv_port_attr
+ibv_post_recv
+ibv_post_send
+ibv_qp
+ibv_qp_attr
+ibv_qp_attr_mask
+ibv_qp_init_attr
+ibv_query_device
+ibv_query_gid
+ibv_query_port
+ibv_recv_wr
+ibv_reg_mr
+ibv_send_wr
+ibv_sge
+ibv_wc
 
 discuss WR's and CQE's
 
