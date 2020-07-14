@@ -1,0 +1,12 @@
+Explain the what before the how
+    then say these are things we need to do, lays out number of requirements
+            balance tradeoff: access at the source vs how quickly
+            tracking allocs
+            talk over network
+
+    64KB -> 4KB
+
+    template example:
+            2 types of composition:
+                - given my type, you can make them migratable
+                - you can pass in your allocator to compose it with ours
