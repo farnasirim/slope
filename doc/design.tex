@@ -7,6 +7,8 @@ Then discuss core migration algorithm
 \section{Programming model}
 \label{sec:platform}
 
+\TODO{figure for per core memory and how threads interact with them?}
+
 Applications have to call into Slope to \CHECK{} initiate and carry on the
 migration operations. Since Slope requires intimate access to the application
 memory, we need to choose a low level platform with first class support for
@@ -43,7 +45,7 @@ hugepages or contiguous physical memory as the former results in
 loss of granularity and the latter needs to be done from inside the kernel and
 typically at boot time before memory fragmentation gets in the way.
 
-\begin{figure}
+\begin{figure}[t]
 \centering
 \ensurepdffromsvg{local-memory-management-phys-log.drawio}
 \includegraphics[width=1\textwidth]{local-memory-management-phys-log.drawio}
@@ -91,7 +93,7 @@ virtual address space in another layer of virtual addressing provided by the
 language runtime.
 
 
-\begin{figure}
+\begin{figure}[t]
 \begin{alltt}
 
 template<typename T> class ptr_hash;
@@ -743,3 +745,9 @@ which address to create the migration pointer.
 %\TODO{can this be used for other systems such as parallel processing
 % based on actor models and message queues with efficient support for
 %e.g. fan out}
+
+% supporting read-only operations and even write operations with carefully
+% created static buffers that can contain unsupported (those that allocate/deallocate)
+% operations that the object has received after a call to initiate migration has
+% already been made.
+

@@ -105,26 +105,6 @@ in application level (or layer 7 in OSI terms) routers in heterogeneous
 computation environments. \autoref{fig:migrationtransport} depicts
 a simple example of this use case. 
 
-\begin{figure}[t]
-\centering
-
-\ensurepdffromsvg{migration-transport.drawio}
-\includegraphics[width=0.8\textwidth]{migration-transport.drawio}
-\caption{
-    Using a migration platform as the transport in a system with
-    application level routing/load balancing. The system needs to execute
-    the data parallel computation portion of each task on the machine
-    which has a GPU. A request/job is the
-    migratable element in this scenario. Each request is independent
-    from other requests. Each request is also self sufficient as its
-    state identifies what action and by which machine type must be
-    executed on the object. Each node executes its share of work
-    on the request object based on its current state, updates the state by
-    writing to the object memory, and migrates it to the next hop based
-    on the state.
-}
-\label{fig:migrationtransport}
-\end{figure}
 
 From a performance point of view, this makes little difference to the
 application if there is serialization involved. In fact we could have
@@ -160,6 +140,7 @@ we can build, maintain and
 extend sub-systems which can carry out tasks across multiple machines.
 
 \subsection{Core properties of a migration framework}
+\label{subsec:coreprops}
 
 The function of a migration platform is to provide a mechanism to allow
 applications to seamlessly move their data structures and their
@@ -257,7 +238,7 @@ executed on the object, which result in carrying on the task. Upon
 receiving of the object, the machine will run the routine that the current
 state of the object dictates. At the end of the routine based on the, new
 state of the object, it might be migrated to another machine. In
-\ref{fig:migration/transport} the routine in the ``gpu'' state could be:
+\autoref{fig:migrationtransport} the routine in the ``gpu'' state could be:
 ``If on a non-GPU machine, migrate to a GPU machine with the same state,
 otherwise perform the computation and move to the ready state''. This
 model can be useful for handling tasks which depend on heterogeneous
@@ -265,24 +246,221 @@ hardware for acceleration. Using this model, any machine-local
 resource in the cluster can be made available to the whole cluster over
 a migration-based transport.
 
-describe the \texttt{run()} function and describe the ``thread of execution''.
-\TODO{...}
 
-describe threading model
+\subsection{Sending and receiving migratable objects}
 
-\TODO{figure for per core and how threads interact with them}
+A migration platform with any level of programmability and performance
+must be usable in a way that can coexist with the application that is
+going to use it. To make sure this is the case, we need to specify the
+exact set of events that happen towards sending or receiving migratable
+objects.
 
-\TODO{fill}
-Fundamentally every server has to be able to host an incoming object.
-Since everything is async, this means that the object must know how to
-"register" itself upon arrival in the remote node. Be it exposing a particular
-api on a unix domain socket, or adding itself as an observer or worker to a blah.
+Let us introduce two functions \texttt{send()} and \texttt{receive()} with
+the goal of tweaking them until they become suitable for use as the APIs
+to the migration platform. \autoref{fig:sendreceive} shows their
+declarations in \emph{pseudo-C++}. In this section we will focus on
+the semantics of the migration and not include unrelated details such as
+including the destination address in \texttt{send()} or specifying
+the medium that will be used.
 
-each control plane has a fixed type
 
-applications can intelligently use the time until ownership is transferred by
-supporting read-only operations and even write operations with carefully
-created static buffers that can contain unsupported (those that allocate/deallocate)
-operations that the object has received after a call to initiate migration has
-already been made.
 
+\begin{figure}[t]
+\begin{alltt}
+
+template<typename T>
+void send(T);
+
+template<typename T>
+T receive(void);
+
+\end{alltt}
+\caption{
+    Declarations of \texttt{send()} and \texttt{receive()}
+}
+\label{fig:sendreceive}
+\end{figure}
+
+
+
+The first point to note about these functions is that they operate on
+a typed object. Otherwise the caller of the \texttt{receive()} function
+will not be able to write any usable code after calling the receive.
+
+Another important and perhaps related point is that \texttt{receive()}
+function returns an object, not data. Therefore we have chosen to deal
+deal with the object creation ourselves, not imposing development or
+run-time costs of serialization and deserialization on the system.
+
+But most importantly, how can these too functions be used in conjunction
+with each other? In \autoref{subsec:coreprops} we concluded that
+migrations have to happen in real-time, but in that case, how can the
+sender and receiver rendezvous at the \texttt{send()} and
+\texttt{receive()} point? How do we program all of the different paths of
+execution that might or might not result in the same type of object being
+passed between two machines? Why should the receiver block to receive the
+object?
+
+Our inability to provide compelling answers for the above questions
+and similar other issues hints
+at changing the communication format to asynchronous. But even with an
+asynchronous API, it is not yet clear how will the \texttt{receive()}
+function be called and how an execution path of the algorithm will find
+out about the existence of a received object, how it distinguishes between
+the received objects, and how it goes about using them.
+
+Leaving these issues to be dealt with by the application
+fails to address our second goal of programmability and pluggability
+by propagating the protocol management details and complexities up to the
+core of the application. This will essentially turn the migration
+platform into an unnatural RPC framework. To remedy this, we push the
+complexity of object initialization and usage into the migratable
+objects. This reduces the degrees of freedom in which the application
+can interfere with the object after it is received, which allows us to
+arrive at a simple, usable API.
+
+\subsection{Migrating runnable objects}
+To overcome the complications with how the receiver interfaces with the
+object it receives, we limit the objects that can be migrated to those
+that expose a \texttt{run()} member function to
+initialize the object in its new host machine. This will delegate the task
+of using the object away from the application and to the object itself.
+
+To conform to the real-time requirement, we declare it the migration
+platform's responsibility to carry out the executions of the
+\texttt{receive()} function. The migration platform might decide to do
+this using a dedicated thread.
+
+To distinguish between different migratable objects of possibly different
+types that are present in the system, we will make it the migration
+platform's responsibility to allow the use of multiple
+\emph{migration control planes} to be used at the same time by the
+application that would never interfere, as if they were operating
+as the sole migration platform in the application.
+The send and receive functions
+will therefore be provided by each migration control plane in isolation
+from the others. Objects can be introduced in the control plane for the
+first time using the control plane's \texttt{accept()} function.
+
+\autoref{fig:sketchclasses} shows a sketch of the migratable objects of
+an application which uses migratable control planes to
+host both a distributed hash table as a listen and serve type of
+application and a sub-system for running tasks with heterogeneous resource
+requirements from the state machine model. The \texttt{GpuTask} objects
+use a global reference to a GPU device on the machine for their
+initializations. Similarly hash table partitions need to register
+themselves at the router in the current machine. These partitions will
+then start serving their api (e.g. get/set) until the router appropriately
+selects one of the registered instances as the receiver for a get or set
+request. That correct function on the particular hash table partition
+instance will then be called.
+
+
+\autoref{fig:sketchmain} shows
+a sketch from the program which uses these constructs. The same program
+is run by all of the machines in the cluster. First they create and share
+two control planes, one for each migratable class that will be used.
+Then each applications creates a migratable object of each type and passes
+it to the appropriate control plane using its \texttt{accept()} method,
+which will call the \texttt{run()} method of the object behind the scenes
+for the first time. Then node 0 suspends the execution of its partition
+    of the distributed hash table by removing it from the router,
+    and migrates it to node 1, possibly because of being overloaded by
+    other computations. This will eventually result in the hash table
+    control plane of node 1 receiving the migrated partition, calling its
+    run() method behind the scenes to register it in the router allowing
+    it to be forwarded the appropriate get or set requests from that
+    point on.
+
+Every sub-system of the application which needs to be programmed in the
+migratable model has to use a separate migration control plane. As an
+example, if the application using \autoref{fig:sketchclasses} were to
+support
+another heterogeneous task programmed in the state machine model, a third
+migration control plane must have been created to be used exclusively for
+that task.
+
+Details such as how we strip away the source access to the object at the
+time of the migration and how the migration happens without serialization
+are left out as parts of the implementation and will be discussed in the
+next chapter.
+
+
+\begin{figure}[t]
+\begin{alltt}
+
+class GpuTask \{
+    State current_state = Init;
+    void run() \{
+        current_node_gpu = GpuDeviceHandle.open();
+        ...
+        switch(current_state) {
+            ...
+            case gpu:
+              if(!current_node_gpu) {
+                // send itself to a machine with a gpu
+              }
+        }
+    \}
+\};
+
+class HashTablePartition \{
+    void run() \{
+        router.register(this);
+    \}
+\};
+\end{alltt}
+\caption{
+    Example runnable migratable objects.
+}
+\label{fig:sketchclasses}
+\end{figure}
+
+
+\begin{figure}[t]
+\begin{alltt}
+int main() \{
+    GpuTaskControlPlane = MigrationControlPlane<GpuTask>();
+    HashTableControlPlane = MigrationControlPlane<HashTablePartition>();
+
+    GpuTaskControlPlane.accept(new GpuTask());
+
+    auto p = new HashTablePartition()
+    HashTableControlPlane.accept(p);
+
+    if(machine_id == 0) {
+        p.suspend();
+        HashTableControlPlane.send(machine_id=1, p);
+    }
+\}
+
+
+\end{alltt}
+\caption{
+    Example application using runnable migratable objects from \autoref{fig:sketchclasses}
+}
+\label{fig:sketchmain}
+\end{figure}
+
+
+
+\begin{figure}[t]
+\centering
+
+\ensurepdffromsvg{migration-transport.drawio}
+\includegraphics[width=0.8\textwidth]{migration-transport.drawio}
+\caption{
+    Using a migration platform as the transport in a system with
+    application level routing/load balancing. The system needs to execute
+    the data parallel computation portion of each task on the machine
+    which has a GPU. A request/job is the
+    migratable element in this scenario. Each request is independent
+    from other requests. Each request is also self sufficient as its
+    state identifies what action and by which machine type must be
+    executed on the object. Each node executes its share of work
+    on the request object based on its current state, updates the state by
+    writing to the object memory, and migrates it to the next hop based
+    on the state.
+}
+\label{fig:migrationtransport}
+\end{figure}
