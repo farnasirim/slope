@@ -7,9 +7,7 @@ all:
 	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
 	bibtex thesis.aux
 	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
-	bibtex thesis.aux
 	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
-	bibtex thesis.aux
 
 
 clean:
