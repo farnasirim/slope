@@ -345,6 +345,7 @@ can interfere with the object after it is received, which allows us to
 arrive at a simple, usable API.
 
 \subsection{Migrating runnable objects}
+\label{subsec:runnable}
 To overcome the complications with how the receiver interfaces with the
 object it receives, we limit the objects that can be migrated to those
 that expose a \texttt{run()} member function to
@@ -367,6 +368,36 @@ will therefore be provided by each migration control plane in isolation
 from the others. Objects can be introduced in the control plane for the
 first time using the control plane's \texttt{accept()} function.
 
+\begin{figure}[tp]
+\begin{alltt}
+
+class GpuTask \{
+    State current_state = Init;
+    void run() \{
+        current_node_gpu = GpuDeviceHandle.open();
+        ...
+        switch(current_state) \{
+            ...
+            case gpu:
+              if(!current_node_gpu) \{
+                // send itself to a machine with a gpu
+              \}
+        \}
+    \}
+\};
+
+class HashTablePartition \{
+    void run() \{
+        router.register(this);
+    \}
+\};
+\end{alltt}
+\caption{
+    Example runnable migratable objects.
+}
+\label{fig:sketchclasses}
+\end{figure}
+
 \autoref{fig:sketchclasses} shows a sketch of the migratable objects of
 an application which uses migratable control planes to
 host both a distributed hash table as a listen and serve type of
@@ -379,6 +410,34 @@ then start serving their api (e.g. get/set) until the router appropriately
 selects one of the registered instances as the receiver for a get or set
 request. That correct function on the particular hash table partition
 instance will then be called.
+
+
+
+\begin{figure}[tp]
+\begin{alltt}
+int main() \{
+    GpuTaskControlPlane = MigrationControlPlane<GpuTask>();
+    HashTableControlPlane = MigrationControlPlane<HashTablePartition>();
+
+    GpuTaskControlPlane.accept(new GpuTask());
+
+    auto p = new HashTablePartition()
+    HashTableControlPlane.accept(p);
+
+    if(machine_id == 0) \{
+        p.suspend();
+        HashTableControlPlane.send(machine_id=1, p);
+    \}
+\}
+
+
+\end{alltt}
+\caption{
+    Example application using runnable migratable objects from \autoref{fig:sketchclasses}
+}
+\label{fig:sketchmain}
+\end{figure}
+
 
 
 \autoref{fig:sketchmain} shows
@@ -410,61 +469,5 @@ time of the migration and how the migration happens without serialization
 are left out as parts of the implementation and will be discussed in the
 next chapter.
 
-
-\begin{figure}[t]
-\begin{alltt}
-
-class GpuTask \{
-    State current_state = Init;
-    void run() \{
-        current_node_gpu = GpuDeviceHandle.open();
-        ...
-        switch(current_state) \{
-            ...
-            case gpu:
-              if(!current_node_gpu) \{
-                // send itself to a machine with a gpu
-              \}
-        \}
-    \}
-\};
-
-class HashTablePartition \{
-    void run() \{
-        router.register(this);
-    \}
-\};
-\end{alltt}
-\caption{
-    Example runnable migratable objects.
-}
-\label{fig:sketchclasses}
-\end{figure}
-
-
-\begin{figure}[t]
-\begin{alltt}
-int main() \{
-    GpuTaskControlPlane = MigrationControlPlane<GpuTask>();
-    HashTableControlPlane = MigrationControlPlane<HashTablePartition>();
-
-    GpuTaskControlPlane.accept(new GpuTask());
-
-    auto p = new HashTablePartition()
-    HashTableControlPlane.accept(p);
-
-    if(machine_id == 0) \{
-        p.suspend();
-        HashTableControlPlane.send(machine_id=1, p);
-    \}
-\}
-
-
-\end{alltt}
-\caption{
-    Example application using runnable migratable objects from \autoref{fig:sketchclasses}
-}
-\label{fig:sketchmain}
-\end{figure}
 
 

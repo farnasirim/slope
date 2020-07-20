@@ -9,7 +9,7 @@ Then discuss core migration algorithm
 
 \TODO{figure for per core memory and how threads interact with them?}
 
-Applications have to call into Slope to \CHECK{} initiate and carry on the
+Applications have to call into Slope to initiate and carry on the
 migration operations. Since Slope requires intimate access to the application
 memory, we need to choose a low level platform with first class support for
 memory management.
@@ -29,17 +29,17 @@ Moved here from evaluation section
 \subsection{Local memory layout}
 Before we can discuss the main components of Slope, we need to discuss how
 memory is managed in each application instance which uses Slope. Similar to
-RAMP \cite{memon2018ramp}, each program instance \CHECK{Sorry what's the problem with this: reserves} a
-large \CHECK{How do you choose the size? Equal to physical memory would be too large.} \TODO{elaborate how large is practical and why. Required for a future section} (e.g. equal to the machine's physical memory size) continuous part
+RAMP \cite{memon2018ramp}, each program instance a
+large \TODO{How do you choose the size? Equal to physical memory would be too large.} \TODO{elaborate how large is practical and why. Required for a future section} (e.g. equal to the machine's physical memory size) continuous part
 of its virtual memory address space, starting at the same virtual address
 on every machine, to be used by Slope.
-This is done \CHECK{at} program construction
-time (i.e. before \texttt{main()}) \CHECK{and we will refer to} call this section of the virtual
+This is done at program construction
+time (i.e. before \texttt{main()}) and we will refer to this section of the virtual
 address space the migratable memory or Slope memory. Note that mappings for
 these pages are not yet generated and therefore the size of the Slope memory
 region can be expanded to the whole 64 bits of address on current machines.
-We will manage the Slope memory by 4KB page granularity \CHECK{ as this is the
-smallest unit of control for setting the protection of memory mappings}.
+We will manage the Slope memory by 4KB page granularity as this is the
+smallest unit of control for setting the protection of memory mappings.
 We do not use \TODO{discuss why you do not need contiguous physical memory}
 hugepages or contiguous physical memory as the former results in
 loss of granularity and the latter needs to be done from inside the kernel and
@@ -77,6 +77,8 @@ and all of the entities in Slope are designed
 to support the execution of this task in a seamless manner and improve its
 performance.
 
+\subsection{fundamental requirement of fixed addresses}
+\label{sec:fixedfundamental}
 \TODO{Elaborate}
 It is important to note that although strict and inflexible, the requirement of
 placing Slope memory on the same virtual address in all machines is,
@@ -93,7 +95,7 @@ virtual address space in another layer of virtual addressing provided by the
 language runtime.
 
 
-\begin{figure}[t]
+\begin{figure}[tp]
 \begin{alltt}
 
 template<typename T> class ptr_hash;
@@ -462,7 +464,7 @@ conforming to these conditions will be left to the application.
 \autoref{fig:migrationprotocol} outlines the migration protocol and the role
 of Slope at different stages during the above timeline.
 
-\begin{figure}[t]
+\begin{figure}[tp]
 \centering
 
 \ensurepdffromsvg{migration-protocol.drawio}
@@ -631,7 +633,7 @@ the address to which they are trying to write acquires the correct permission.
 as each of them they fall into one of the above cases while Slope prefills a
 page.
 
-\begin{figure}[t]
+\begin{figure}[tp]
 \centering
 
 \ensurepdffromsvg{dirty-detection.drawio}
@@ -755,104 +757,118 @@ this point the state on the source looks as if the said object had never existed
 there.
 
 
-\section{Conformance to C++ language terminologies}
-\label{sec:conform}
-e.g. const, mutable, const cast
-
-
 \section{Optimizations and Corner cases}
-e.g. have to send the location of the object itself also: from
-which address to create the migration pointer.
+Multiple optimizations opportunities and housekeeping tasks have been omitted
+from the earlier parts of this chapter. In this section we attend to these
+subtle but important left out pieces.
 
+\paragraph{C++ programming style to account for the prefill phase}
+Writing programs that can both respect and leverage the prefill phases
+described previously is important to keep code readable. We can encode the
+conditions and requirements of the migration phase using C++ language features.
+For example to represent the object after the prefill phase starts, we can
+stick to using only a \texttt{const} reference to the target object,
+forcing the user to use a discouraged \texttt{const\_cast} to be able to call
+into the type's non-\texttt{const} methods.
 
-% \section{Implementation}
+\paragraph{Allocation strategies:} There are multiple ways to improve the memory
+allocation performance. Since we need to allocate memory to objects in page
+granularity, it is important to reduce fragmentation and wasted space,
+otherwise the two will quickly pile up to decrease usable memory and increase
+communication overhead. One optimization towards preventing this is to allocate
+new memory from the page(s) that an object already owns instead of adding
+new pages to an object every time \texttt{allocate()} is called on behalf of it.
+
+Applications may want to provide their custom allocators on top of the Slope
+allocator which allocates big regions from the shared address space. Given the
+above note, using a general
+allocator inside Slope would not be meaningful since internally, Slope's
+allocator is optimizing towards a specific and object-local goal (namely
+reducing the number of pages that an object owns) compared to the usual
+global object-agnostic goals of generic allocators.
+
+However it might
+nevertheless be helpful to allow applications to pass in their own solutions
+to the former problem. For that matter, general allocators' approaches can
+be reused. For example we can pose the problem of ``fitting a new allocation
+into one of the part-filled pages of the current object'' to a user supplied
+allocator.
+
+\paragraph{Deallocation:} Reasoning about and implementing deallocation must
+be done with care since we have a local and a distributed level of memory
+allocation in the system and multiple problems must be dealt with.
+
+We need to handle deallocations both locally and globally. More concretely, we
+need to correctly make note of the deallocated memory of each object, and also
+keep track of the usage of each range lease such that they can be handed back
+to their owners when they are no longer required.
+
+Deallocation does not require an active context. Notice that requiring
+an active context during deallocation is out of the question, since
+deallocation could be happening in an object's destructor. This does not pose
+a problem since we can keep an inverse map from memory allocations to
+migratable objects and update it at each call to \texttt{allocate()}. We can
+then use the inverse map to correctly attribute each deallocation with its
+respective object and update the pages that underlie the object if necessary.
+
+When a machine deallocates memory referenced by a migratable object, this
+information needs to be sent back to the lease holder of the memory range in
+which the deallocated memory falls. We do this off the critical path, such that
+each meachine accumulates deallocated memories and sends them in batches to
+the machines that they originally belonged ($i$th $\frac{1}{n}$ of the
+shared address space originally belongs to the $i$th machine), since the machine
+on which the
+deallocation happens does not have any information about
+the actual lease owner of the embodying memory range. The original owner
+of the memory range is then responsible to relay this information to the current
+lease holder.
+
+The timings of these requests do not pose a problem. That is
+because while deallocations can happen globally, allocations from a memory range
+happen only at the owner and the order in which we interleave the two types of
+operations cannot result in double deallocation (since each object is owned by
+exactly one machine) and double allocation (since all of the allocations happen
+at the current node on unallocated memory). The lease holder can turn the lease
+over to the original owner if it does not contain any allocated memory.
+
+\paragraph{Optimizing communication over RDMA:} There is room to optimize
+the RDMA communication further. In some steps during the migration, we
+increase the smallest unit of communication from pages to continuous chunks
+of memory, possibly spanning multiple pages. Similarly when calling for
+READs/WRITEs on continuous chunks or pages, we chain together multiple
+WR's and post them in a single request to decrease the number of times we
+have to notify the network device using MMIO over the PCIe bus.
+
+In the prefill phase, instead of sending the full list of dirty pages to the
+destination so that it can prioritize which of them to READ first, we can
+proactively choose one or a small number of the pages and WRITE them in
+parallel to sending the dirty list to the destination to save half of an rtt
+in latency and leverage the free bandwidth.
+For example we can prevent one page fault on the destination
+if the page in which the allocated object \emph{reference} lies is dirty and
+the source WRITEs it proactively, since this page will generate the first
+fault when an object is accessed.
+
 % \TODO{incomplete}
 % We keep a thread local context stack which keeps track of the owner of each memory allocation. \TODO{Sequence diagram-like figure, denoting the ownership stack next to the function activation record stack of the thread}.
-% 
-% 
-% \TODO{fill}
-%   procedures which allocate memory to or deallocate memory from the data structure. Typically all const qualified methods in c++ 
-%   are safe to be called after a call to prepare, however not every safe procedure is necessarily const qualified (e.g. updating an element in a vector)
-% 
-% fix the granularity by allocating to the same object from a page that it already owns.
-% 
+% differentiate between the memory under leases and objects.
+% range lease, who is responsible for allocation in each node, who will know, etc.
+% define "allocation on behalf of an object": with a context created from that objcet
+% mig_ptr
 % - The ith machine owns the i/n'th section of the memory, assuming the machines have equal memory.
+% allocated memory vs mapped memory (for which mappings have been created)
 % Machines use a two level memory
 % allocation scheme, in which they ask for large chunks (e.g. 4Gb) from other nodes in the cluster to make sure we do not exhaust
 % the address space that each node owns. This will eliminate the need for a centralized way of keeping track of object allocations.
 % 
-% Applications can bring their own memory allocator over the reserved regions of the shared address space that they have allocated: as long as they can call instead of mmaping a new memory themselves.
-% Deallocations return the memory to the owner of the big segment periodically, off the critical path. \TODO{These are tricky.. revisit}
-% 
-% %  - Prefetch step happens in the prepare phase. source walks through the pages one by one, mprotects them to readonly, and
-% %    sends them to the corresponding addresses over RDMA.
-% %  
-% %    - This step is optional. If the data structure is under heavy usage and most of the memory is being touched, this
-% %    will only lengthen the migration process, during which the source cannot allocate/deallocate to the object that is being
-% %    migrated, without much improvement towards decreasing the handoff time, during which
-% %    none of the two machines have read or write access to the data structure.
-% %  
-% %  
-% %  ** Idea: From the call to execute, until when the source tells the sink about the call and send the
-% %  dirty pages that it needs to pull, we are losing time. What if the source pushes a few of the pages
-% %  based on a parameter that we optimize, to leverage the bandwidth during the idle time?
-% %   - I think regardless of the size of the data structure, this is a useful approach: If it's big,
-% %   only a small ratio is dirtied in between the phase changes and if it's small, then well, it's already small.
-% %   Since we can send 100Gb/s = 100Mb/ms, this is even close to the rate at which we dirty the pages, we win. \TODO{ This is not possible. The target memory is not
-% %   pinned before we tell them we're going to migrate into that specific part of their memory} \TODO{NO! this is happening after the prefill. The point here is to start the final transfer phase to make the handoff faster, not to make the whole migration process faster, which we don't really care that much about}
-% %   \TODO{How do we choose which pages to prefill? Can they express interest? Should we first send the mig_ptr
-% %   object headers to quickly generate the misses?}
-% %  
-% %  \section{Handling failures}
-% %  Migrations effectively allow us to persist a correct state of the data structure: We have a snapshot at migration time
-% %  
-% %  If a node goes away, we don't lose anything because of the point to point
-% %  nature of node communications. Every node knows who has allocated its memory
-% %  and can evict those leases if it desirable. No application fault tolerance
-% %  features provided aside from snapshots at migration time.
-% %  
-% %  
-% %  \section{Building systems on top of slope}
-% %  Discovery: can be done several ways: one way: lazy forwarding, keeping timestamps
-% %  of the migrations to figure out who knows the most recent information, 
-% %  Arp like protocol, 
-% 
 % % metric: change of (throughput per byte). What about the total time?
 % \TODO{Should this be in the evaluation section}
-% \TODO{Where should I raise the discussion about how these objects must be
-% used?}
 % 
-% \TODO{optimizations include merging the adjacent pages into a single WR}
-% 
-% \TODO{section: real world life-cycle of Slope and why it makes sense}
-% \TODO{discuss nested pointers, nested, recursive data structures}
-% \TODO{It is not necessarily a good idea to start prefilling as soon as possible e.g. as we receive the "receive posted" for each chunk:
-% increases the chance of invlalidation as they will be spread apart.}
 % \TODO{this model encourages fixed objects, where you don't need to allocate repeatedly: bloom filter, hash table with fixed size values + ds's where access is local}
-% 
-% \TODO{
-% prefill optimizations
-% Some optimizations such as chaining together WRs
-% each pointing to a different page, or merging the WRs of adjacent pages may come
-% to mind
-% but what about non-adjacent pages? we have to make multiple calls to mprotect to
-% first set them to NON and then continue.
-% }
-% \TODO{destination must quickly be able to reference the object i.e. send the
-% object page first}
-
-% \TODO{to design an application level (layer 7) router: add buffer to write additional things, initiate migrate, finish processing, hand over,
-% resulting in next to no latency}
-
-%\TODO{deallocations can happen off the critical path, the home node will merge everything}
-
-
 %\TODO{build a function as a service framework on this}
-%\TODO{Make the computation model more restricted to get rid of the fixed address requirement. Use higher level languages. Use in conjunction with the function as a service}
 %\TODO{can this be used for other systems such as parallel processing
 % based on actor models and message queues with efficient support for
 %e.g. fan out}
-
 % supporting read-only operations and even write operations with carefully
 % created static buffers that can contain unsupported (those that allocate/deallocate)
 % operations that the object has received after a call to initiate migration has
