@@ -1,120 +1,74 @@
 \chapter{Design and Implementation of Slope}
 \label{chap:design}
 
-% \TODO{incomplete}
-% We keep a thread local context stack which keeps track of the owner of each memory allocation. \TODO{Sequence diagram-like figure, denoting the ownership stack next to the function activation record stack of the thread}.
-% differentiate between the memory under leases and objects.
-% range lease, who is responsible for allocation in each node, who will know, etc.
-% define "allocation on behalf of an object": with a context created from that objcet
-% mig_ptr
-% - The ith machine owns the i/n'th section of the memory, assuming the machines have equal memory.
-% allocated memory vs mapped memory (for which mappings have been created)
-% Machines use a two level memory
-% allocation scheme, in which they ask for large chunks (e.g. 4Gb) from other nodes in the cluster to make sure we do not exhaust
-% the address space that each node owns. This will eliminate the need for a centralized way of keeping track of object allocations.
-% 
-% % metric: change of (throughput per byte). What about the total time?
-% \TODO{Should this be in the evaluation section}
-% 
-% \TODO{this model encourages fixed objects, where you don't need to allocate repeatedly: bloom filter, hash table with fixed size values + ds's where access is local}
-%\TODO{build a function as a service framework on this}
-%\TODO{can this be used for other systems such as parallel processing
-% based on actor models and message queues with efficient support for
-%e.g. fan out}
-% supporting read-only operations and even write operations with carefully
-% created static buffers that can contain unsupported (those that allocate/deallocate)
-% operations that the object has received after a call to initiate migration has
-% already been made.
 
 We present the design and implementation of Slope, a migration framework which
 satisfies the requirements and conditions discussed in the previous chapter.
 
-\section{Programming model}
-\label{sec:platform}
-
-\TODO{figure for per core memory and how threads interact with them?}
-
-Applications have to call into Slope to initiate and carry on the
-migration operations. Since Slope requires intimate access to the application
-memory, we need to choose a low level platform with first class support for
-memory management.
-
-We have chosen C++ as the platform to implement Slope, mainly because we need
-to directly access process memory and manage the way it is allocated and used.
-Whether or not these limitations can be eliminated, for example by using Slope
-as a service or like a sidecar process, as opposed to a library are future
-research directions.
-
+\section{Design elements}
 
 \subsection{Local memory layout}
-Before we can discuss the main components of Slope, we need to discuss how
-memory is managed in each application instance which uses Slope. Similar to
-RAMP \cite{memon2018ramp}, each program instance a
-large \TODO{How do you choose the size? Equal to physical memory would be too large.} \TODO{elaborate how large is practical and why. Required for a future section} (e.g. equal to the machine's physical memory size) continuous part
-of its virtual memory address space, starting at the same virtual address
-on every machine, to be used by Slope.
-This is done at program construction
-time (i.e. before \texttt{main()}) and we will refer to this section of the virtual
-address space the migratable memory or Slope memory. Note that mappings for
+\label{sec:localmem}
+We discussed why serialization both creates a performance overhead and causes
+a maintainability and programming burden. To eliminate the serialization and
+deserialization steps, we use a specific memory layout for migratable objects.
+Similar to RAMP \cite{memon2018ramp}, each program instance reserves a
+specific contiguous part of its virtual memory address space. The size of this
+segment must be at least equal to the \emph{sum} of maximum physical memory that the
+application allows to be used by migratable objects, this can be
+as high as the total amount of physical memory in the cluster.
+The starting address of this memory range is the same address on all machines.
+This reservation is done at program construction time
+(i.e. before \texttt{main()}). We will refer to this section of the virtual
+address space as migratable memory or Slope memory. Note that mappings for
 these pages are not yet generated and therefore the size of the Slope memory
 region can be expanded to the whole 64 bits of address on current machines.
-We will manage the Slope memory by 4KB page granularity as this is the
-smallest unit of control for setting the protection of memory mappings.
-We do not use \TODO{discuss why you do not need contiguous physical memory}
-hugepages or contiguous physical memory as the former results in
-loss of granularity and the latter needs to be done from inside the kernel and
-typically at boot time before memory fragmentation gets in the way.
+
+To synchronize accesses to memory during the migration process, we need a way
+to control accesses to the pages in Slope memory. We therefore choose to manage
+Slope memory by 4KB page granularity as this is the smallest unit of control
+for setting memory page protection mappings.
 
 \begin{figure}[t]
 \centering
 \ensurepdffromsvg{local-memory-management-phys-log.drawio}
 \includegraphics[width=1\textwidth]{local-memory-management-phys-log.drawio}
 \caption{
-    \TODO{Remove Slope Memory.}
-    Placement of Slope memory within virtual memory address space on each node
-    upon initialization.
-    Notice how Slope memory is at the same location in the virtual address
-    space of the program on each node. It also has the same size and
-    page boundaries on all machines. Also note how
-    the 4KB pages from that region are not mapped to any physical memory pages
-    yet.
+    Placement of Slope memory on each node upon initialization.
 }
 \label{fig:localmemorymanagementphyslog}
 \end{figure}
 
+\autoref{fig:localmemorymanagementphyslog} shows how the local memory layouts
+of the machines compare with each other. Notice how Slope memory is at the
+same location in the virtual address space of the program on each node.
+It also has the same size and page boundaries on all machines. Also note how
+the 4KB pages from that region are not mapped to any physical memory pages
+yet.
+
 The placement of Slope memory in the application virtual address space is
-central to the migration process. \TODO{Rewrite} If an object was wholly contained
-in the Slope memory region on Machine 1, meaning it had no references to memory
-outside
-of that region and no references to any resources beyond the
-scope of the application memory (E.g. a file descriptor), then if we moved all
-of the memory belonging to that object to Machine 2, with the exception of
-some house keeping tasks, for example memory allocation and deallocation, the
-object would continue to ``work'' in its new residence.
-This is the central
-idea behind the migration of objects which is also used in \cite{memon2018ramp}
-and all of the entities in Slope are designed
-to support the execution of this task in a seamless manner and improve its
-performance.
+central to the migration process. An object which only references addresses
+within the Slope memory on one machine, can be moved to a different machine
+and put on the same virtual address, page by page, along with the addresses
+that it references and the object would continue to ``work'' in its new
+residence. This in essence describes a migration operation.
 
-\subsection{fundamental requirement of fixed addresses}
+This however requires multiple conditions to be in place, and multiple
+housekeeping tasks to be taken care of. For example the object must not have
+any references to resources falling outside of the migratable memory. These
+could be objects in non-migratable memory, or file descriptors, which refer
+to resources beyond the scope of the application altogether. Memory allocation
+and deallocation must be handled too to avoid objects from overwriting each
+others' pages during a migration.
+
+Starting from the local memory layout, all of the design elements and
+sub-systems in Slope are directed towards providing a migration API with the
+requirements discussed in the previous chapter, while making allowing the above
+issues to be dealt with.
+
+
+\subsubsection{fundamental requirement of fixed addresses}
 \label{sec:fixedfundamental}
-\TODO{Elaborate}
-It is important to note that although strict and inflexible, the requirement of
-placing Slope memory on the same virtual address in all machines is,
-unfortunately, a fundamental requirement. \autoref{fig:localmemorymanagementfundamental}
-shows an example of why this is the case. The implication is as long as the
-application has any means of referencing the underlying virtual address of any
-of its resources, its correct execution may end up depending on that address
-staying the same at every point during the execution of the program. It would
-be interesting to look into this issue and assess to what extent this can be
-mitigated for example by allowing only ``named'' accesses to resources, similar
-to how objects are accessed in Python (except the code boundary of calling into
-external C functions). This way, we are effectively wrapping the application's
-virtual address space in another layer of virtual addressing provided by the
-language runtime.
-
-
 \begin{figure}[tp]
 \begin{alltt}
 
@@ -137,19 +91,203 @@ int main() \{
 
 \end{alltt}
 \caption{
-    An example of reliance on a specific memory address. We create a hash
-    function for pointers which simply uses their value, which is an address
-    in virtual memory. The vector needs to move the contents of its underlying array to a
-    bigger array before inserting the second element. At this point, from the viewpoint of
-    \texttt{m}, \texttt{v} has ``moved'', effectively shifting its start
-    address to a new virtual address. \texttt{m} has no way of figuring out
-    the new address and no way of translating its address dependencies.
+    Referencing an object (int) through its virtual address
 }
 \label{fig:localmemorymanagementfundamental}
 \end{figure}
+\TODO{Elaborate}
+It is important to note that although strict and inflexible, the requirement of
+placing Slope memory on the same virtual address in all machines is,
+unfortunately, a fundamental requirement. \autoref{fig:localmemorymanagementfundamental}
+shows an example of why this is the case. It shows the creation of a hash
+    function for pointers which simply uses their value, which is a virtual
+    memory address. The vector needs to move the contents of its underlying
+    array to a bigger array before inserting the second element. At this point, from the viewpoint of
+    \texttt{m}, \texttt{v} has ``moved'', effectively shifting its start
+    address to a new virtual address. \texttt{m} has no way of figuring out
+    the new address and no way of translating its address dependencies.
+
+In contrast, had the map stored indices instead of addresses, allowing them
+to be translated to addresses internally in the map, this would not have been
+a problem. \autoref{fig:refbyindex} demonstrates this. In this example,
+the second call to \texttt{push\_back()} changes \texttt{\&v[0]}, however this
+will not pose a problem since no object depends on it apart from \texttt{v}.
+
+\begin{figure}[tp]
+\begin{alltt}
+
+int main() \{
+  std::unordered_map<int, int> m;
+  std::vector<int> v(0);
+  v.push_back(1); m[0] = 1;
+  v.push_back(2); // results in v[0] being moved
+  assert(v[m.begin()->first] == m.begin()->second); // succeeds
+\}
+
+\end{alltt}
+\caption{
+    Referencing an object (int) through its index
+}
+\label{fig:refbyindex}
+\end{figure}
+
+The implication is as long as the
+application has any means of referencing the underlying virtual address of any
+of its resources, its correct execution may end up depending on that address
+staying the same at every point during the execution of the program. Therefore
+migrating an object without serialization and deserialization to another
+machine (process)
+requires byte by byte replication of its memory to the exact same virtual
+addresses in the other machine (process) in the general case.
+
+\subsection{Distributed memory management}
+\label{sec:globalmem}
+To simplify the discussion, from this point on we will assume that all of the
+machines in the cluster have equal amounts of physical memory and that we want
+to allow Slope to be able to use as much as all of the physical memory on each
+machine.
+
+Slope memory will therefore be of size $n \times m$ where $n$ is the number
+of machines and $m$ is the physical memory available to each machine. We assign
+the ownership of the first $m$ bytes of memory to the first machine, the
+second $m$ bytes to the second machine and so on, such that the $i$th machine
+owns the $i$th $\frac{1}{n}$ of Slope memory.
+
+We can simplify the distributed ownership of memory if we only allow the
+machines allocate memory from the section that they own, however this may
+result in memory address load imbalance. If one machine keeps
+allocating objects and then quickly migrates them to the other machines. The
+$\frac{1}{n}$ of the Slope memory which this machine owns will soon run out,
+and the machine will not be able to create any more migratable objects
+even though the global Slope memory and the node's local physical memory are
+far from full.
+
+This requires us to devise a distributed memory management scheme which allows
+us to use possibly all of the available Slope memory regardless of which
+machine we are allocating the memory from, while avoiding clashes
+between the allocated addresses across the cluster.
+
+We divide the Slope memory to sections that we call lease ranges. Each lease
+range must be fully contained in one machine's $\frac{1}{n}$ of memory.
+Lease ranges are the units of distributed ownership of Slope memory.
+\autoref{fig:leaserange} shows placement of lease ranges
+in slope memory.
 
 
+\begin{figure}[t]
+\centering
+\ensurepdffromsvg{leaserange.drawio}
+\includegraphics[width=1\textwidth]{leaserange.drawio}
+\caption{
+    Cluster memory layout and lease ranges
+}
+\label{fig:leaserange}
+\end{figure}
 
+At any point, each lease range is owned by at most
+one machine. Initially, none of the leases are held by any of the machines.
+For the duration of the program, each machine is responsible for
+the leases that initially fall in its $\frac{1}{n}$ of Slope memory.
+That means the machine can hand out
+the lease ownership to itself or other machines for any of the leases it is
+responsible for.
+
+
+Machines allocate memory pages from the lease ranges they own. Initially when
+the machines do not own any leases to allocate from, or when the unallocated
+memory in the
+ranges that they already own does not suffice for their new allocations, they
+need to ask for a new lease. To solve the memory imbalance problem, each node
+will locally decide to direct its request for a new lease to the machine which
+has the highest number of free leases. Each machine broadcasts this information
+to the cluster in long intervals. We set the lease sizes to be 1GB and
+make each machine broadcast the number of leases it has available every 10
+seconds.
+
+The 1GB size allows for lease requests to be infrequent enough to amortize
+seamlessly over the number of allocations, while keeping them small enough
+to avoid sudden increases in the memory usage of any of the nodes. The 10
+second interval keeps the lease ownership counts up to date across the cluster,
+while causing little overhead to the application. However because of stale
+information during the intervals, the nodes will not always
+correctly choose the machine with the highest available lease count to allocate
+from, but the 1GB size of the leases which is relatively small compared to the
+physical memory available to the machines will account for this. This protocol 
+will keep the available number of leases in each machine roughly equal across
+the cluster.
+
+The above distributed memory allocation scheme not only eliminates the need for
+a consensus box to track global memory allocations, but also can avoid
+contention when multiple machines need to acquire new lease ranges by methods
+such as randomly requesting for the lease from the top $k$ least occupied
+machines.
+
+\subsection{Memory allocator}
+\label{sec:platform}
+The strict local and distributed memory requirements discussed in the previous
+section suggest that a memory allocator to manage the Slope memory should be central
+to the design of Slope. Since Slope requires intimate access to the application
+memory, we need to choose a low level platform with first class support for
+memory management.
+
+We have chosen C++ as the platform to implement Slope, mainly because we need
+to directly access process memory and manage the way it is allocated and used.
+We implement \texttt{slope::memory::Allocator<T>} which is a memory allocator
+conforming to the C++ allocator name requirement (e.g. providing
+\texttt{allocate()} and \texttt{deallocate()}). It will internally satisfy the
+local and global memory requirements of Slope following the protocols discussed
+in \autoref{sec:localmem} and \autoref{sec:globalmem}.
+
+\begin{figure}[t]
+\begin{alltt}
+using MigratableUserDefinedType =
+    UserDefinedType<T, slope::memory::Allocator<T>>;
+\end{alltt}
+\caption{
+    Making predefined types migratable
+}
+\label{fig:migratableuserdefined}
+\end{figure}
+
+Any C++ type which accepts an allocator (as defined by the named requirement)
+can be passed Slope's allocator. \autoref{fig:migratableuserdefined}
+demonstrates how a preexisting user defined type can be used as a
+migratable type without changes to its internal implementation.
+
+
+\begin{figure}[t]
+\begin{alltt}
+template<
+    typename T,
+    \textbf{typename Allocator = std::allocator<T>}
+> class vector;
+\end{alltt}
+\caption{
+    Declaration of \texttt{std::vector<T>}
+}
+\label{fig:stdvector}
+\end{figure}
+
+
+\begin{figure}[t]
+\begin{alltt}
+template<typename T>
+using migratable_vector = std::vector<T, slope::memory::Allocator<T>>;
+
+\end{alltt}
+\caption{
+    migratable \texttt{std::vector<T>}
+}
+\label{fig:migvector}
+\end{figure}
+
+With this design decision, STL containers alongside many other preexisting
+C++ structures can be easily made migratable.
+For example \autoref{fig:stdvector} shows how the declaration of
+\texttt{std::vector<T>}
+allows the user to pass a custom allocator type. \autoref{fig:migvector} shows
+how we can use the pattern in \autoref{fig:migratableuserdefined} to create
+an alias for migratable vectors.
 
 
 
@@ -167,35 +305,171 @@ class UserDefinedType \{
   // ...
 \};
 \end{alltt}
-\caption{
-Similar to the case with \texttt{std{::}vector<T, Allocator>},
-\texttt{UserDefinedType<T, Allocator>} support being used as a migratable
-    entity since it can work
-with a supplied allocator that conforms to C++ allocator named requirement.
-Furthermore, notice how the user defined type passes the allocator type parameter
-to a member \texttt{std{::}vector}, demonstrating composition-friendliness, a
-useful behavior for the application developer.
-}
+\caption{ Partial implementation of \texttt{UserDefinedType} which accepts an allocator}
 \label{fig:userdefinedtype}
 \end{figure}
 
 
-\begin{figure}[t]
+A possible implementation for the \texttt{UserDefinedType} shown in
+\autoref{fig:migratableuserdefined} might look like \autoref{fig:userdefinedtype}.
+The class uses the allocator type passed to it to carry out any memory
+allocations. Notice how the allocator can be conveniently passed down to the
+class members (e.g. \texttt{std::vector<T, Allocator>}), showing the composition
+friendliness of using allocators classes that conform with C++ named requirements.
+
+
+
+
+
+
+
+
+
+
+
+\subsection{Memory ownership tracking}
+Passing Slope's memory allocator to types is not enough.
+When an object is migrated to a different machine, we need to move all of the
+memory that it references to the destination machine and put them at their
+corresponding virtual memory addresses. This means
+that we need a mechanism to keep track of the memory that an object owns.
+
+We manage migratable objects through migratable pointers. The template\\
+\texttt{slope::memory::mig\_ptr<T>} represents these types. A migratable
+pointer works very similarly to an \texttt{std::unique\_ptr<T>}, with the
+main distinction that it provides methods through which we can keep track
+of the memory allocated by the underlying object. Furthermore after the
+migration, we can recreate the underlying object of type \texttt{T} from
+the migrated memory pages into a \texttt{mig\_ptr<T>}.
+
+Most importantly, a migratable pointer provides a \texttt{create\_context()}
+method which we must use to inform Slope of any memory allocations.
+\autoref{fig:migptrusage} shows an example usage of this. For any method call
+of the type that underlies the \texttt{mig\_ptr},
+if it has a possibility of calling \texttt{allocate()} on Slope allocator, it
+must be enclosed in a context. We call this behavior ``allocating memory for
+an object''.
+
+\begin{figure}[tp]
 \begin{alltt}
-using MigratableUserDefinedType =
-    UserDefinedType<T, slope::memory::Allocator<T>>;
+
+using HashTablePartition = DistributedPartition<
+    int, // key type
+    int, // value type
+    slope::memory::allocator<int>
+    >;
+
+int main() \{
+  int key = 1, value = 2;
+
+  // underlying type uses slope::memory::Allocator
+    slope::mig_ptr<HashTablePartition> ptr{}; // default constructor
+                                            // of HashTablePartition
+
+  \{
+    auto context = ptr.create_context(); // method called on the mig_ptr
+    ptr->put(key, value); // method called on the HashTablePartition
+  \} // context is invalidated as it goes out of scope and destructor is called
+
+  ptr->get(key); // No memory allocation possible; no context required
+\}
 \end{alltt}
 \caption{
-    \texttt{MigratableUserDefinedType} is the migratable version of
-    \texttt{UserDefinedType}. There is neither need for modifications to
-    \texttt{UserDefinedType}, nor for \texttt{UserDefinedType} to know
-    beforehand that it will have been used this way.
-    \ANGELA{Use horizontal line to separate figures} \TODO{Does this line do it?}
+    usage of \texttt{create\_context()} method
 }
-\label{fig:migratableuserdefined}
-\centerline{\rule{16cm}{0.4pt}}
-\bigskip
+\label{fig:migptrusage}
 \end{figure}
+
+
+We keep a stack of contexts as they are created and destroyed by the application.
+At each call to \texttt{allocate()}, the \texttt{mig\_ptr} whose context is at
+the top of the stack will be set as the owner of the allocated memory.
+
+Another important purpose that the \texttt{mig\_ptr} class template serves is
+constructing the object itself. In addition to the memory allocations done
+\emph{by} the object (e.g. allocating the underlying array by \texttt{std::vector}),
+the object memory itself (\texttt{std::vector} object) must be placed in
+migratable memory. This is an important step since we are not necessarily able
+to construct the object elsewhere and then manually move it into the migratable
+memory.
+
+\subsection{Ownership management summary}
+We will go over an example scenario to show how different layers of memory
+ownership work together. Take the code snippet from \autoref{fig:migptrusage}
+and assume it is being run on machine 1, in a cluster consisting of 3 machines.
+Here is a possible course of events that we observe on this machine.
+
+First, the migratable pointer is created in \emph{non}-Slope memory. The
+migratable pointer is only responsible for holding onto the migratable object
+and does not need to be migratable itself. It will in turn try to allocate
+Slope memory equal to the size of a \texttt{HashTablePartition} and constructs the
+hash table in that memory.
+
+Before the call to \texttt{allocate()} it creates
+a temporary initialization context which we will later point to the object
+that is about to be created. This is required because there is a circular
+dependency between allocating the memory on which we are constructing the
+hash table and setting the owner of that memory to be the hash table itself.
+The circular dependency arises because we are not aware of the address of the
+object before we allocate its memory.
+
+After creating the initialization context, we call into \texttt{allocate()}.
+Machine 1 does not yet hold any lease ranges, so it will try to ask for one.
+After looking at the current number of available lease ranges at each node,
+it will choose one of the three nodes in the cluster at random since all of them
+have an equal number of available lease ranges. Machine 2 will be selected and
+the request for a new lease will be sent to it by Machine 1. After being given
+the ownership of a lease range by Machine 2, we continue in the
+\texttt{allocate()} function.
+
+We then allocate a page from the newly owned lease range (assuming the size of
+a \texttt{HashTablePartition} is much less than a single memory page), and assign the
+page and the allocated memory inside the page to the object that is being
+created by breaking the circular dependency which is described above.
+We return from the \texttt{allocate()} function and the initialization context
+will be removed from the context stack.
+
+We return from the constructor of the \texttt{HashTablePartition} and then
+the migratable pointer. The call to \texttt{create\_context()} will place
+\texttt{ptr} at the top of the context stack. As a consequence all of the
+Slope memory allocations will be assigned to \texttt{ptr} until further change
+to the context stack. We call into the \texttt{put()} member function, which
+results in a call to \texttt{allocate()}. More memory will be allocated from
+the page that embodies the \texttt{HashTablePartition} object since that page
+still contains some empty space. Being at the top of the context stack,
+\texttt{ptr} will own the newly allocated memory. Afterwards the context will
+go out of scope, resulting in \texttt{ptr}'s context being removed from the
+context stack, leaving it empty. 
+The call to \texttt{get()} will not invoke any of the Slope functions.
+
+It is important to note that allocated memory is not necessarily mapped to
+physical memory. As an example if the \texttt{ptr} object from
+\autoref{fig:migptrusage} is migrated to Machine 3, its underlying memory
+on a range lease from Machine 2, which is now owned by Machine 1 will remain
+allocated from the standpoint of Machine 1 which is responsible for that lease
+range, but those memory pages will not be mapped to physical pages on Machine 1
+after the migration.
+In contrast, on Machine 3 those pages will indeed be mapped to
+physical memory.
+
+% % metric: change of (throughput per byte). What about the total time?
+% \TODO{Should this be in the evaluation section}
+% 
+% \TODO{this model encourages fixed objects, where you don't need to allocate repeatedly: bloom filter, hash table with fixed size values + ds's where access is local}
+%\TODO{build a function as a service framework on this}
+%\TODO{can this be used for other systems such as parallel processing
+% based on actor models and message queues with efficient support for
+%e.g. fan out}
+% supporting read-only operations and even write operations with carefully
+% created static buffers that can contain unsupported (those that allocate/deallocate)
+% operations that the object has received after a call to initiate migration has
+% already been made.
+
+
+
+\subsection{Programming model}
+
+
 
 
 \subsubsection{benefits of the custom allocator}
@@ -219,49 +493,43 @@ as long as they are given Slope's allocator for their allocator type parameter.
 }
 
 
-\begin{figure}[t]
-\begin{alltt}
-template<
-    typename T,
-    \textbf{typename Allocator = std::allocator<T>}
-> class vector;
-\end{alltt}
-\caption{
-    Declaration of std::vector in the STL. As well as the element type \texttt{T},
-    std::vector accepts an allocator class, set to \texttt{std{::}allocator<T>} by
-    default. The allocator class will be used for all allocations of type T.
-    By passing in a specific allocator class, the user can control where the
-    memory that underlies the vector is allocated from.
-}
-\label{fig:stdvector}
-\end{figure}
-
-
-
-\begin{figure}[t]
-\begin{alltt}
-template<typename T>
-using migratable_vector = std::vector<T, slope::memory::Allocator<T>>;
-
-\end{alltt}
-\caption{
-\texttt{migratable\_vector<T>} wraps \texttt{std{::}vector<T, Allocator<T>>}, setting
-its allocator type to one that Slope provides. Objects of type
-\texttt{migratable\_vector<T>} are migratable as a result.
-}
-\label{fig:migvector}
-\end{figure}
-
 \TODO{applications can also easily create their own migratable types.
 \TODO{bringing your own memory allocator does not make much sense}
 \autoref{fig:userdefinedtype}}
 
 
-\TODO{done benefits of the custom allocator}
 
 
-\subsubsection{keeping track of allocations}
-\label{subsec:trackallocations}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 \section{RDMA background}

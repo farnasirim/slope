@@ -84,6 +84,14 @@ we most likely need to recursively relocate its members too. In addition to
 that, we need to enforce a limited programming model to prevent direct reliance
 on virtual memory addresses, as discussed in \autoref{sec:fixedfundamental}.
 
+Another way to mitigate this is by allowing only ``named'' accesses to
+resources, similar to how objects are accessed in Python (except the code
+boundary of calling into external C functions). This way, we are effectively
+wrapping the application's
+virtual address space in another layer of virtual addressing provided by the
+language runtime.
+
+
 
 \section{Conclusion}
 
