@@ -1,8 +1,33 @@
 \chapter{Design and Implementation of Slope}
 \label{chap:design}
 
-We then discuss migration and show how it satisfies the above
-Then discuss core migration algorithm
+% \TODO{incomplete}
+% We keep a thread local context stack which keeps track of the owner of each memory allocation. \TODO{Sequence diagram-like figure, denoting the ownership stack next to the function activation record stack of the thread}.
+% differentiate between the memory under leases and objects.
+% range lease, who is responsible for allocation in each node, who will know, etc.
+% define "allocation on behalf of an object": with a context created from that objcet
+% mig_ptr
+% - The ith machine owns the i/n'th section of the memory, assuming the machines have equal memory.
+% allocated memory vs mapped memory (for which mappings have been created)
+% Machines use a two level memory
+% allocation scheme, in which they ask for large chunks (e.g. 4Gb) from other nodes in the cluster to make sure we do not exhaust
+% the address space that each node owns. This will eliminate the need for a centralized way of keeping track of object allocations.
+% 
+% % metric: change of (throughput per byte). What about the total time?
+% \TODO{Should this be in the evaluation section}
+% 
+% \TODO{this model encourages fixed objects, where you don't need to allocate repeatedly: bloom filter, hash table with fixed size values + ds's where access is local}
+%\TODO{build a function as a service framework on this}
+%\TODO{can this be used for other systems such as parallel processing
+% based on actor models and message queues with efficient support for
+%e.g. fan out}
+% supporting read-only operations and even write operations with carefully
+% created static buffers that can contain unsupported (those that allocate/deallocate)
+% operations that the object has received after a call to initiate migration has
+% already been made.
+
+We present the design and implementation of Slope, a migration framework which
+satisfies the requirements and conditions discussed in the previous chapter.
 
 \section{Programming model}
 \label{sec:platform}
@@ -19,11 +44,6 @@ to directly access process memory and manage the way it is allocated and used.
 Whether or not these limitations can be eliminated, for example by using Slope
 as a service or like a sidecar process, as opposed to a library are future
 research directions.
-
-\subsection{A section on how useful the programming model is}
-E.g. what data structures can be used naturally in this model
-Moved here from evaluation section
-\subsection{Multi-threading support}
 
 
 \subsection{Local memory layout}
@@ -849,28 +869,10 @@ if the page in which the allocated object \emph{reference} lies is dirty and
 the source WRITEs it proactively, since this page will generate the first
 fault when an object is accessed.
 
-% \TODO{incomplete}
-% We keep a thread local context stack which keeps track of the owner of each memory allocation. \TODO{Sequence diagram-like figure, denoting the ownership stack next to the function activation record stack of the thread}.
-% differentiate between the memory under leases and objects.
-% range lease, who is responsible for allocation in each node, who will know, etc.
-% define "allocation on behalf of an object": with a context created from that objcet
-% mig_ptr
-% - The ith machine owns the i/n'th section of the memory, assuming the machines have equal memory.
-% allocated memory vs mapped memory (for which mappings have been created)
-% Machines use a two level memory
-% allocation scheme, in which they ask for large chunks (e.g. 4Gb) from other nodes in the cluster to make sure we do not exhaust
-% the address space that each node owns. This will eliminate the need for a centralized way of keeping track of object allocations.
-% 
-% % metric: change of (throughput per byte). What about the total time?
-% \TODO{Should this be in the evaluation section}
-% 
-% \TODO{this model encourages fixed objects, where you don't need to allocate repeatedly: bloom filter, hash table with fixed size values + ds's where access is local}
-%\TODO{build a function as a service framework on this}
-%\TODO{can this be used for other systems such as parallel processing
-% based on actor models and message queues with efficient support for
-%e.g. fan out}
-% supporting read-only operations and even write operations with carefully
-% created static buffers that can contain unsupported (those that allocate/deallocate)
-% operations that the object has received after a call to initiate migration has
-% already been made.
 
+\paragraph{Multi-threading support:} Using Slope in a multi-threaded
+environment does not require much extra effort. We need to use multiple
+allocation context stacks and maintain them per thread, while maintaining
+allocation mapping and inverse mapping globally. We therefore need to
+synchronize accesses from multiple threads to these resources at certain points
+in the \texttt{allocate()} and \texttt{deallocate()} functions.
