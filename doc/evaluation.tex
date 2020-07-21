@@ -1,8 +1,72 @@
 \chapter{Evaluation}
 \label{chap:evaluation}
 
-\section{A section on evaluation of core metrics}
-E.g. How does the performance look like during the migration
+We go over a few use cases of Slope in real-world systems and present both
+micro-benchmarks and full benchmarks for select applications. We also discuss
+the metrics that the applications using Slope can measure to get a sense of
+how much Slope is impacting their performance.
 
-\section{A section on evaluation of whole data structures}
+To measure times and calculate performance metrics globally in the cluster,
+we synchronize the start time from one machine to all other machines in the
+cluster, by estimating the round trip time between them, which we do by
+calculating the median among multiple round trip time calculations. Round
+trip times are approximately $5 {\mu}{s}$, a pessimistic upper bound for the
+error in time synchronization.
 
+\section{Measuring the change in application performance}
+Looking at each sub-system in Slope, one can define certain metrics that
+reflect if that sub-system is working efficiently. For example one could
+directly measure the migration delays or allocation tail latencies, but these
+rarely reflect the real effect of the performance of Slope on the application.
+
+We can instead look for metrics which closely related to the performance of
+the applications. Since most applications' performance is
+directly dependent on their throughput and latency, we define two metrics to
+measure in applications to reflect how much overhead Slope introduces in these
+two metrics, while taking into account the migration delay.
+
+\paragraph{Drop in throughput:}
+The amount of throughput that the application loses throughout the migration
+process is an informative metric, but we need to penalize the framework if
+the migration process takes a very long time, even when there is not a
+noticeable drop in throughput during that time. Therefore we measure
+$(steady\ state\ throughput - actual\ throughput) \times \frac{elapsed\ time}{optimal\ time}$, where the optimal time is the time is the minimal time it takes to transfer
+the underlying memory of the object while using the full throughput of the
+data plane with no software overhead.
+
+\paragraph{Latency overhead}
+Looking at the distribution of the latency increases over time, we can
+hypothesize about how Slope impacts application latency. However the volume of
+this data might make it hard to reason about. Therefore we can look at certain
+percentiles (e.g. upper 99 percent) of the absolute latency increases over time,
+and also select percentiles of the percentages of latency increases over time.
+
+
+\subsection{Migration friendliness of data structures}
+Based on how the migration process and specifically how the prefill operation
+works, objects which are likely to keep their internal memory allocations
+throughout their operations are very good candidates for migration, since they
+can function seamlessly throughout the prefill phase, by only inducing dirty
+page overhead.
+
+Examples of these objects include bloom filters, where we have a fixed
+array of bits the size of which always stays the same.
+Similarly hashtables which use open addressing techniques such as cuckoo
+hashing scheme for their collision resolution are also good candidates.
+
+\section{Case study: core metrics}
+
+\section{Case study: migration friendly objects}
+
+\section{Case study: migration unfriendly objects}
+
+
+% \TODO{this model encourages fixed objects, where you don't need to allocate repeatedly: bloom filter, hash table with fixed size values + ds's where access is local}
+%\TODO{build a function as a service framework on this}
+%\TODO{can this be used for other systems such as parallel processing
+% based on actor models and message queues with efficient support for
+%e.g. fan out}
+% supporting read-only operations and even write operations with carefully
+% created static buffers that can contain unsupported (those that allocate/deallocate)
+% operations that the object has received after a call to initiate migration has
+% already been made.
