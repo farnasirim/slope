@@ -51,14 +51,41 @@ page overhead.
 
 Examples of these objects include bloom filters, where we have a fixed
 array of bits the size of which always stays the same.
-Similarly hashtables which use open addressing techniques such as cuckoo
+Similarly hash tables which use open addressing techniques such as cuckoo
 hashing scheme for their collision resolution are also good candidates.
 
 \section{Case study: core metrics}
+In this section we measure the performance of each micro operation in Slope
+while we migrate an artificial object with no particular use.
+
+\subsection{Migrating a read-only object}
+plot elapsed times w.r.t. number of pages the object spans
+
+\subsection{Migrating a write-heavy object}
+while all of its pages are being written to
+
+plot elapsed times w.r.t. number of pages the object spans
+
+\subsection{Migrating an object based on the writes it receives}
+Object size from 10 to ... each of them are rows in the same plot
+
+x axis shows the percentage of the pages that are constantly being dirtied
+
+Each point shows the elapsed time of that particular setting
+
 
 \section{Case study: migration friendly objects}
 
+bloom filter
+
+cucko hashing
+
+double hashing
+
 \section{Case study: migration unfriendly objects}
+
+c++ map
+
 
 
 % \TODO{this model encourages fixed objects, where you don't need to allocate repeatedly: bloom filter, hash table with fixed size values + ds's where access is local}
