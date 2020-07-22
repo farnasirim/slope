@@ -417,7 +417,7 @@ instance will then be called.
 \begin{alltt}
 int main() \{
     GpuTaskControlPlane = MigrationControlPlane<GpuTask>();
-    HashTableControlPlane = MigrationControlPlane<jashTablePartition>();
+    HashTableControlPlane = MigrationControlPlane<HashTablePartition>();
 
     GpuTaskControlPlane.accept(new GpuTask());
 
