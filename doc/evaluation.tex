@@ -82,7 +82,7 @@ cucko hashing
 
 double hashing
 
-\section{Case study: migration unfriendly objects}
+\section{Case study: generic objects}
 
 c++ map
 
@@ -97,3 +97,6 @@ c++ map
 % created static buffers that can contain unsupported (those that allocate/deallocate)
 % operations that the object has received after a call to initiate migration has
 % already been made.
+% big table can be implemented easily using Slope
+% as opposed to the original methods where we only think about the movement of
+% objects, here we think about movement of servers
