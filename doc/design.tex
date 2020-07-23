@@ -6,20 +6,24 @@ We present the design and implementation of Slope, a migration framework which
 satisfies the requirements and conditions discussed in the previous chapter.
 
 \section{Design elements}
+Slope has to provide features such as transferring objects without serialization
+and deserialization that are rather unusual in more generic systems. We
+therefore have to carefully introduce ideas to deliver these specific capabilities.
 
 \subsection{Local memory layout}
 \label{sec:localmem}
-We discussed why serialization both creates a performance overhead and causes
-a maintainability and programming burden. To eliminate the serialization and
-deserialization steps, we use a specific memory layout for migratable objects.
+To eliminate the serialization and deserialization steps, we use a specific
+memory layout to store migratable objects.
 Similar to RAMP \cite{memon2018ramp}, each program instance reserves a
 specific contiguous part of its virtual memory address space. The size of this
 segment must be at least equal to the \emph{sum} of maximum physical memory that the
-application allows to be used by migratable objects, this can be
+application plans to devote to migratable objects, this can be
 as high as the total amount of physical memory in the cluster.
 The starting address of this memory range is the same address on all machines.
 This reservation is done at program construction time
-(i.e. before \texttt{main()}). We will refer to this section of the virtual
+(i.e. before \texttt{main()}).
+
+We will refer to this section of the virtual
 address space as migratable memory or Slope memory. Note that mappings for
 these pages are not yet generated and therefore the size of the Slope memory
 region can be expanded to the whole 64 bits of address on current machines.
@@ -51,51 +55,50 @@ central to the migration process. An object which only references addresses
 within the Slope memory on one machine, can be moved to a different machine
 and put on the same virtual address, page by page, along with the addresses
 that it references and the object would continue to ``work'' in its new
-residence. This in essence describes a migration operation.
+residence. This in essence describes a migration operation and is how we will
+eliminate the need to serialize and deserialize these objects.
 
 This however requires multiple conditions to be in place, and multiple
 housekeeping tasks to be taken care of. For example the object must not have
 any references to resources falling outside of the migratable memory. These
 could be objects in non-migratable memory, or file descriptors, which refer
-to resources beyond the scope of the application altogether. Memory allocation
+to resources beyond the scope of the application. Memory allocation
 and deallocation must be handled too to avoid objects from overwriting each
 others' pages during a migration.
 
 Starting from the local memory layout, all of the design elements and
 sub-systems in Slope are directed towards providing a migration API with the
-requirements discussed in the previous chapter, while making allowing the above
-issues to be dealt with.
+requirements discussed in the previous chapter, while enabling us to deal with
+the above
+issues.
 
 
 \subsubsection{fundamental requirement of fixed addresses}
 \label{sec:fixedfundamental}
 \begin{figure}[tp]
-\begin{alltt}
-
+\begin{lstlisting}
 template<typename T> class ptr_hash;
-template<typename T> class ptr_hash<T*> \{
+template<typename T> class ptr_hash<T*> {
   using Type = T*;
  public:
-  size_t operator()(const Type& ptr) const \{
+  size_t operator()(const Type& ptr) const {
     return reinterpret_cast<std::uintptr_t>(ptr);
-  \}
-\};
-int main() \{
+  }
+};
+int main() {
   std::unordered_map<int*, int, ptr_hash<int*>> m;
   std::vector<int> v(0);
   // v.reserve(2); // Uncommenting will result in passing the assert
   v.push_back(1); m[&v[0]] = 1;
   v.push_back(2);
   assert(*(m.begin()->first) == m.begin()->second); // fails
-\}
-
-\end{alltt}
+}
+\end{lstlisting}
 \caption{
     Referencing an object (int) through its virtual address
 }
 \label{fig:localmemorymanagementfundamental}
 \end{figure}
-\TODO{Elaborate}
 It is important to note that although strict and inflexible, the requirement of
 placing Slope memory on the same virtual address in all machines is,
 unfortunately, a fundamental requirement. \autoref{fig:localmemorymanagementfundamental}
@@ -114,17 +117,15 @@ the second call to \texttt{push\_back()} changes \texttt{\&v[0]}, however this
 will not pose a problem since no object depends on it apart from \texttt{v}.
 
 \begin{figure}[tp]
-\begin{alltt}
-
-int main() \{
+\begin{lstlisting}
+int main() {
   std::unordered_map<int, int> m;
   std::vector<int> v(0);
   v.push_back(1); m[0] = 1;
   v.push_back(2); // results in v[0] being moved
   assert(v[m.begin()->first] == m.begin()->second); // succeeds
-\}
-
-\end{alltt}
+}
+\end{lstlisting}
 \caption{
     Referencing an object (int) through its index
 }
@@ -154,10 +155,10 @@ second $m$ bytes to the second machine and so on, such that the $i$th machine
 owns the $i$th $\frac{1}{n}$ of Slope memory.
 
 We can simplify the distributed ownership of memory if we only allow the
-machines allocate memory from the section that they own, however this may
+machines to allocate memory from the section that they own, however this may
 result in memory address load imbalance. If one machine keeps
 allocating objects and then quickly migrates them to the other machines. The
-$\frac{1}{n}$ of the Slope memory which this machine owns will soon run out,
+$\frac{1}{n}$ of the Slope memory belonging to this machine will soon run out,
 and the machine will not be able to create any more migratable objects
 even though the global Slope memory and the node's local physical memory are
 far from full.
@@ -166,12 +167,6 @@ This requires us to devise a distributed memory management scheme which allows
 us to use possibly all of the available Slope memory regardless of which
 machine we are allocating the memory from, while avoiding clashes
 between the allocated addresses across the cluster.
-
-We divide the Slope memory to sections that we call lease ranges. Each lease
-range must be fully contained in one machine's $\frac{1}{n}$ of memory.
-Lease ranges are the units of distributed ownership of Slope memory.
-\autoref{fig:leaserange} shows placement of lease ranges
-in slope memory.
 
 
 \begin{figure}[t]
@@ -183,6 +178,14 @@ in slope memory.
 }
 \label{fig:leaserange}
 \end{figure}
+
+
+We divide the Slope memory to sections that we call lease ranges. Each lease
+range must be fully contained in one machine's $\frac{1}{n}$ of memory.
+Lease ranges are the units of distributed ownership of Slope memory.
+\autoref{fig:leaserange} shows placement of lease ranges
+in slope memory.
+
 
 At any point, each lease range is owned by at most
 one machine. Initially, none of the leases are held by any of the machines.
@@ -211,22 +214,25 @@ second interval keeps the lease ownership counts up to date across the cluster,
 while causing little overhead to the application. However because of stale
 information during the intervals, the nodes will not always
 correctly choose the machine with the highest available lease count to allocate
-from, but the 1GB size of the leases which is relatively small compared to the
-physical memory available to the machines will account for this. This protocol 
+from, but the 1GB size of the ranges which is relatively small compared to the
+physical memory available to the machines will account for this inaccuracy.
+This protocol
 will keep the available number of leases in each machine roughly equal across
 the cluster.
 
 The above distributed memory allocation scheme not only eliminates the need for
-a consensus box to track global memory allocations, but also can avoid
-contention when multiple machines need to acquire new lease ranges by methods
-such as randomly requesting for the lease from the top $k$ least occupied
-machines.
+a consensus box to track global memory allocations, but can also avoid
+contention when multiple machines need to acquire new lease ranges with
+little tweaks. For example each machine can randomly select to request the
+lease from one of the top $k$ least occupied machines, instead of selecting
+the least occupied machine, avoiding hotspots when multiple machine requests
+for leases at the same time.
 
 \subsection{Memory allocator}
 \label{sec:platform}
 The strict local and distributed memory requirements discussed in the previous
-section suggest that a memory allocator to manage the Slope memory should be central
-to the design of Slope. Since Slope requires intimate access to the application
+section suggest that we should manage the Slope memory using a custom memory
+allocator. Since Slope requires intimate access to the application
 memory, we need to choose a low level platform with first class support for
 memory management.
 
@@ -239,10 +245,10 @@ local and global memory requirements of Slope following the protocols discussed
 in \autoref{sec:localmem} and \autoref{sec:globalmem}.
 
 \begin{figure}[t]
-\begin{alltt}
+\begin{lstlisting}
 using MigratableUserDefinedType =
     UserDefinedType<T, slope::memory::Allocator<T>>;
-\end{alltt}
+\end{lstlisting}
 \caption{
     Making predefined types migratable
 }
@@ -251,17 +257,16 @@ using MigratableUserDefinedType =
 
 Any C++ type which accepts an allocator (as defined by the named requirement)
 can be passed Slope's allocator. \autoref{fig:migratableuserdefined}
-demonstrates how a preexisting user defined type can be used as a
-migratable type without changes to its internal implementation.
-
+demonstrates how a preexisting well written user defined type can be
+passed Slope's allocator without the need to change its internal implementation.
 
 \begin{figure}[t]
-\begin{alltt}
+\begin{lstlisting}
 template<
     typename T,
-    \textbf{typename Allocator = std::allocator<T>}
+    typename Allocator = std::allocator<T>
 > class vector;
-\end{alltt}
+\end{lstlisting}
 \caption{
     Declaration of \texttt{std::vector<T>}
 }
@@ -270,11 +275,11 @@ template<
 
 
 \begin{figure}[t]
-\begin{alltt}
+\begin{lstlisting}
 template<typename T>
 using migratable_vector = std::vector<T, slope::memory::Allocator<T>>;
 
-\end{alltt}
+\end{lstlisting}
 \caption{
     migratable \texttt{std::vector<T>}
 }
@@ -292,19 +297,19 @@ an alias for migratable vectors.
 
 
 \begin{figure}[t]
-\begin{alltt}
+\begin{lstlisting}
 template<typename T, typename Allocator>
-class UserDefinedType \{
-  static inline Allocator allocator;
-  std::vector<T, Allocator> vector_;
-  T *ptr_;
+class UserDefinedType {
+    static inline Allocator allocator;
+    std::vector<T, Allocator> vector_;
+    T *ptr_;
  public:
-  template<typename... Args>
-  UserDefinedType(Args&&... args):
-    ptr_(\textbf{new (allocator.allocate(1))} T(std::forward<Args>(args)...)) \{ \}
-  // ...
-\};
-\end{alltt}
+    template<typename... Args>
+    UserDefinedType(Args&&... args):
+      ptr_(new (allocator.allocate(1)) T(std::forward<Args>(args)...)) {}
+    // ...
+};
+\end{lstlisting}
 \caption{ Partial implementation of \texttt{UserDefinedType} which accepts an allocator}
 \label{fig:userdefinedtype}
 \end{figure}
@@ -314,8 +319,9 @@ A possible implementation for the \texttt{UserDefinedType} shown in
 \autoref{fig:migratableuserdefined} might look like \autoref{fig:userdefinedtype}.
 The class uses the allocator type passed to it to carry out any memory
 allocations. Notice how the allocator can be conveniently passed down to the
-class members (e.g. \texttt{std::vector<T, Allocator>}), showing the composition
-friendliness of using allocators classes that conform with C++ named requirements.
+class members (e.g. \texttt{std::vector<T, Allocator>}), showing the
+composition-friendliness of using allocators classes that conform with C++ named
+requirements.
 
 
 
@@ -328,6 +334,7 @@ friendliness of using allocators classes that conform with C++ named requirement
 
 
 \subsection{Memory ownership tracking}
+\label{sec:ownershiptracking}
 Passing Slope's memory allocator to types is not enough.
 When an object is migrated to a different machine, we need to move all of the
 memory that it references to the destination machine and put them at their
@@ -336,44 +343,49 @@ that we need a mechanism to keep track of the memory that an object owns.
 
 We manage migratable objects through migratable pointers. The template\\
 \texttt{slope::memory::mig\_ptr<T>} represents these types. A migratable
-pointer works very similarly to an \texttt{std::unique\_ptr<T>}, with the
+pointer works very similarly to a \texttt{std::unique\_ptr<T>}, with the
 main distinction that it provides methods through which we can keep track
 of the memory allocated by the underlying object. Furthermore after the
 migration, we can recreate the underlying object of type \texttt{T} from
-the migrated memory pages into a \texttt{mig\_ptr<T>}.
+the migrated memory pages into a \texttt{slope::memory::mig\_ptr<T>}.
 
 Most importantly, a migratable pointer provides a \texttt{create\_context()}
 method which we must use to inform Slope of any memory allocations.
 \autoref{fig:migptrusage} shows an example usage of this. For any method call
-of the type that underlies the \texttt{mig\_ptr},
+on type \texttt{T} that underlies the \texttt{slope::memory::mig\_ptr<T>},
 if it has a possibility of calling \texttt{allocate()} on Slope allocator, it
 must be enclosed in a context. We call this behavior ``allocating memory for
 an object''.
 
 \begin{figure}[tp]
-\begin{alltt}
-
+\begin{lstlisting}
 using HashTablePartition = DistributedPartition<
     int, // key type
     int, // value type
     slope::memory::allocator<int>
     >;
 
-int main() \{
-  int key = 1, value = 2;
+int main() {
+    int key = 1, value = 2;
 
-  // underlying type uses slope::memory::Allocator
-    slope::mig_ptr<HashTablePartition> ptr{}; // default constructor
-                                            // of HashTablePartition
+    // underlying type uses slope::memory::Allocator
+    // default constructor of HashTablePartition is used
+    slope::mig_ptr<HashTablePartition> ptr{};
 
-  \{
-    auto context = ptr.create_context(); // method called on the mig_ptr
-    ptr->put(key, value); // method called on the HashTablePartition
-  \} // context is invalidated as it goes out of scope and destructor is called
+    {
+        // method called on mig_ptr
+        auto context = ptr.create_context();
 
-  ptr->get(key); // No memory allocation possible; no context required
-\}
-\end{alltt}
+        // method called on the HashTablePartition through operator&
+        ptr->put(key, value);
+
+    } // context is invalidated as it goes out of scope
+      // and destructor is called
+
+    // No memory allocation possible; no context required
+    ptr->get(key);
+}
+\end{lstlisting}
 \caption{
     usage of \texttt{create\_context()} method
 }
@@ -397,7 +409,7 @@ memory.
 We will go over an example scenario to show how different layers of memory
 ownership work together. Take the code snippet from \autoref{fig:migptrusage}
 and assume it is being run on machine 1, in a cluster consisting of 3 machines.
-Here is a possible course of events that we observe on this machine.
+Here is a possible course of events that we may observe on this machine.
 
 First, the migratable pointer is created in \emph{non}-Slope memory. The
 migratable pointer is only responsible for holding onto the migratable object
@@ -411,7 +423,7 @@ that is about to be created. This is required because there is a circular
 dependency between allocating the memory on which we are constructing the
 hash table and setting the owner of that memory to be the hash table itself.
 The circular dependency arises because we are not aware of the address of the
-object before we allocate its memory.
+hash table before we allocate its memory.
 
 After creating the initialization context, we call into \texttt{allocate()}.
 Machine 1 does not yet hold any lease ranges, so it will try to ask for one.
@@ -420,7 +432,8 @@ it will choose one of the three nodes in the cluster at random since all of them
 have an equal number of available lease ranges. Machine 2 will be selected and
 the request for a new lease will be sent to it by Machine 1. After being given
 the ownership of a lease range by Machine 2, we continue in the
-\texttt{allocate()} function.
+\texttt{allocate()} function. We now have 1GB of Slope memory available on
+machine 1.
 
 We then allocate a page from the newly owned lease range (assuming the size of
 a \texttt{HashTablePartition} is much less than a single memory page), and assign the
@@ -430,27 +443,28 @@ We return from the \texttt{allocate()} function and the initialization context
 will be removed from the context stack.
 
 We return from the constructor of the \texttt{HashTablePartition} and then
-the migratable pointer. The call to \texttt{create\_context()} will place
-\texttt{ptr} at the top of the context stack. As a consequence all of the
+the migratable pointer. The call to \texttt{create\_context()} on line 16 
+will place
+\texttt{ptr}'s context at the top of the context stack. As a consequence, all of the
 Slope memory allocations will be assigned to \texttt{ptr} until further change
 to the context stack. We call into the \texttt{put()} member function, which
 results in a call to \texttt{allocate()}. More memory will be allocated from
 the page that embodies the \texttt{HashTablePartition} object since that page
-still contains some empty space. Being at the top of the context stack,
+still contains some empty space. With its context present at the top of
+the context stack,
 \texttt{ptr} will own the newly allocated memory. Afterwards the context will
 go out of scope, resulting in \texttt{ptr}'s context being removed from the
-context stack, leaving it empty. 
+context stack, leaving it empty.
 The call to \texttt{get()} will not invoke any of the Slope functions.
 
 It is important to note that allocated memory is not necessarily mapped to
 physical memory. As an example if the \texttt{ptr} object from
 \autoref{fig:migptrusage} is migrated to Machine 3, its underlying memory
-on a range lease from Machine 2, which is now owned by Machine 1 will remain
-allocated from the standpoint of Machine 1 which is responsible for that lease
-range, but those memory pages will not be mapped to physical pages on Machine 1
-after the migration.
-In contrast, on Machine 3 those pages will indeed be mapped to
-physical memory.
+will remain allocated from the standpoint of Machine 1 which is responsible for
+the lease lease range under \texttt{ptr}.
+However Machine 1 will unmap those memory pages after the migration.
+In contrast, on Machine 3, those pages will indeed be mapped to
+physical memory after the migration.
 
 \section{RDMA background}
 RDMA programming model turns out to be a good fit for the networking
@@ -575,99 +589,82 @@ have to poll. As a result of polling the CQ, the application is handed
 Completion Queue Entries (CQEs) which reveal the source of the completion.
 
 
-\section{Architecture of Slope}
-At a high level, Slope consists of \TODO{Update to quickly introduce} a control plane, a data plane,
-a specialized distributed memory management
-scheme/implementation, and a migration protocol
-built on top
-of the above. We have implemented the control plane and the data plane using
-RDMA over Infiniband because of how well the benefits of RDMA networking
-fit our problem specifications, but the APIs which the \TODO{two}
-sub-systems expose are not dependent on how RDMA works or how their internals
-are implemented.
+\section{Architecture}
+At a high level, Slope consists a control plane, responsible for carrying out
+different phases of the migration operation and provide the means for the
+servers to send and receive metadata to eachother, a data plane, in this case
+over RDMA which handles sending and receiving memory pages,
+and a specialized distributed memory management scheme, described earlier in the
+chapter. Slope's migration protocol is built atop the above sub-systems.
 
-
+% We have implemented the control plane and the data plane using
+% RDMA over Infiniband because of how well the benefits of RDMA networking
+% fit our problem specifications, but they can be implemented using any transport.
 
 \subsection{Control plane}
-\TODO{control plane consists of functions such as distributed allocator,
-migrate, etc.}
-\ANGELA{RDMA too low level too soon Provide table of the control plane operations. Describe at a high level the communications over the control plane, then say how this is done using the RDMA framework.}
-Control plane provides an abstraction over which application instances can
-execute migration operations and other side-tasks including distributed
-memory management. For each operation that we support, we create a reliable
-connected queue pair between each pair of machines, and pre-post to them
-as many receive requests as we need to support concurrently. When a
+The control plane provides an abstraction over which application instances can
+execute migration operations and other side-tasks such as exchanging internal
+system metadata or distributed memory allocation. For each operation we create
+a reliable connected queue pair between each pair of machines, and pre-post to
+them as many receive requests as we need to support concurrently. When a
 machine pulls out a work completion from the completion queues assigned to
 these queue pairs, a receive buffer is reposted to the corresponding queue to
 make up for any other incoming requests, and a request flow starts during which
-the two machines will go back and forth to carry out the operation. Although
-the control plane can be practically replaced by any rpc framework, we do not
-have much to gain from using Herd \cite{kalia2016designguidelines} or
-FaSSt \cite{kalia2016fasst}, as the performance metrics in Slope are dominated mostly
-by the performance of the data plane.
+the two machines will go back and forth to carry out the operation.
 
-When using connected queue pairs, meta-data
-from each queue has to exist on the device cache for any operations to be
-carried out through that queue pair. As the number of queue pairs on each node
-increases linearly with the number of nodes in the cluster when we connect the
-QPs in a full-mesh manner, the performance of the application will collapse
-after we pass a certain number of nodes in the cluster, which has
-incentivized designs of RPC systems that use datagram queue pairs such as
-\cite{kalia2019datacenter} and \cite{kalia2016fasst}, even though others such
-as \cite{novakovic2019storm} have proposed hybrid one sided and two sided
-schemes which scale well. We have not reached a point where we can directly
-benefit from these optimizations as we are mostly throughput (data plane)
-limited. Furthermore we use each queue pair repeatedly in short bursts after a
-migration operation is triggered which avoids invalidating the ``active'' QP
-meta-data from the cache during the migration. However the control plane
-can be replaced entirely with any other RPC mechanism that achieves better
-performance.
+% Although
+% the control plane can be practically replaced by any rpc framework, we do not
+% have much to gain from using systems such as Herd \cite{kalia2016designguidelines} or
+% FaSSt \cite{kalia2016fasst}, as the performance metrics in Slope are dominated
+% mostly
+% by the performance of the data plane.
 
-For co-ordination between machines (e.g. rendezvous protocol and transition
-to ready to send state)
-an out of band communication mechanism has to be used. We use memcached where 
-every node registers its queue pair and memory region parameters and
-information and waits to receive the same information from its peers. This
-phase only runs early in the program and does not have an effect on the
-performance of the system after the initialization is finished, at which point
-we no longer need the memcached server.
+
+
+% When using connected queue pairs, meta-data
+% from each queue has to exist on the device cache for any operations to be
+% carried out through that queue pair. As the number of queue pairs on each node
+% increases linearly with the number of nodes in the cluster when we connect the
+% QPs in a full-mesh manner, the performance of the application will collapse
+% after we pass a certain number of nodes in the cluster, which has
+% incentivized designs of RPC systems that use datagram queue pairs such as
+% \cite{kalia2019datacenter} and \cite{kalia2016fasst}, even though others such
+% as \cite{novakovic2019storm} have proposed hybrid one sided and two sided
+% schemes which scale well. We have not reached a point where we can directly
+% benefit from these optimizations as we are mostly throughput (data plane)
+% limited. Furthermore we use each queue pair repeatedly in short bursts after a
+% migration operation is triggered which avoids invalidating the ``active'' QP
+% meta-data from the cache during the migration. However the control plane
+% can be replaced entirely with any other RPC mechanism that achieves better
+% performance.
+
+% For co-ordination between machines (e.g. rendezvous protocol and transition
+% to ready to send state)
+% an out of band communication mechanism has to be used. We use memcached where 
+% every node registers its queue pair and memory region parameters and
+% information and waits to receive the same information from its peers. This
+% phase only runs early in the program and does not have an effect on the
+% performance of the system after the initialization is finished, at which point
+% we no longer need the memcached server.
 
 \subsection{Data plane}
+The data plane is used to transfer contents of pages of Slope
+memory from one machine to the same page addresses in another node. As we
+will see when discussing the migration protocol, the data plane is used
+in two separate phases called \emph{prefill} and \emph{transfer}. The prefill
+phase sends the pages of a migratable object to the destination with
+relaxed consistencies, and is followed by transfer, which ensures that the
+object is sent correctly and is in a valid state at the destination.
 
-\ANGELA{not clear pre-filling vs transfer}
-The data plane is used to transfer the contents of a section of the Slope
-memory to the same section in another node. As far as the data plane is
-concerned, this is done in two major steps. Prefilling is done first, during
-which the data plane will fill the corresponding addresses of the
-Slope memory in a remote node from the same address in the current node, with
-relaxed consistency requirements. Transfer operation follows shortly, during
-which we ensure the contents of the above memory section in the source are
-replicated to the same virtual addresses on the remote node. Prefilling is done
-in 4KB page granularity, while transfer can be done in larger units, depending
-on the contiguity of the memory section that is being transferred.
+% relaxed consistency requirements. Transfer operation follows shortly, during
+% which we ensure the contents of the above memory section in the source are
+% replicated to the same virtual addresses on the remote node. Prefilling is done
+% in 4KB page granularity, while transfer can be done in larger units, depending
+% on the contiguity of the memory section that is being transferred.
 
-Combining the above with other control mechanisms in the migration protocol, we
-ensure that the data which underlies an object is correctly transferred to the
-remote node after a migration. Optimistically, the transfer operation uses some
-of the data that is already replicated to the remote node during the prefill
-phase. Some of the prefilled data must be invalidated due to writes between the
-prefill and the transfer phases. The participants need to correctly identify
-the pages whose contents need to be invalidated to benefit from the performance
-gain, while doing a correct transfer. This will be discussed in detail in
-\autoref{sec:migrationprotocol}.
 
-\subsection{Distributed memory management}
-
-\subsection{Migration protocol}
+\section{Migration protocol}
 \label{sec:migrationprotocol}
-We observe the lifetime of a migratable data structure from the point it is
-created until after we finish migrating it to another node. Throughout the
-lifetime of the object and during the migration process, there are certain
-conditions that need to be satisfied by the application for the migration
-operation to finish correctly. As discussed later in this section,
-in many of these cases, forcing the application to satisfy low level conditions
-cannot be completely achieved by the library and the responsibility of
-conforming to these conditions will be left to the application.
 
 \autoref{fig:migrationprotocol} outlines the migration protocol and the role
 of Slope at different stages during the above timeline.
@@ -684,6 +681,12 @@ of Slope at different stages during the above timeline.
 \label{fig:migrationprotocol}
 \end{figure}
 
+We observe the lifetime of a migratable data structure from the point it is
+created until after we finish migrating it to another node. As discussed
+later in the section in detail, throughout the
+there are certain conditions that need to be satisfied by the application
+for the migration operation to finish correctly.
+
 \subsubsection{Object creation}
 During this phase the source machine calls into the Slope library multiple
 times, based on how many times memory allocation and deallocation is required.
@@ -693,19 +696,17 @@ the target object. Up until the point that
 the source initiates the migration, all of the memory allocations of the target object
 must happen through
 Slope's custom memory allocator through allocation contexts as discussed in
-\TODO{must discuss contexts} \autoref{sec:platform}.
-The application must satisfy the memory allocation requirements discussed in
-\TODO{briefly mention here, elaborate there, so reader has a sense of limitations}
-\autoref{subsec:trackallocations} to make sure Slope correctly keeps track of the
-memory that each object references. \TODO{Namely...}
+\autoref{sec:ownershiptracking}.
+The application must enclose the memory allocations of the migratable objects
+with the correct allocation contexts to make sure Slope correctly keeps track of the
+memory that each object references.
 
 After the object is created the program will call the \texttt{run()} method
 of the object, which may result in further calls to the memory allocator as
 the object might need to allocate memory to process its incoming requests or
 carry out the calls to its member functions. These new allocations will be
-correctly picked up by Slope allocator given that allocation contexts are used
-as discussed in \autoref{subsec:trackallocations}, meaning at any point in time we
-know which memory pages belong to the target object.
+correctly picked up by Slope allocator given that allocation contexts are used,
+meaning at any point in time we know which memory pages belong to the target object.
 
 \subsubsection{Migration initiation}
 The application logic decides that the target object must be migrated from the
@@ -895,7 +896,8 @@ of the memory under the target object at once, if an application thread is
 currently in the process of writing to the above memory, there is no right
 action we can take from outside the application. For example this might have
 been one write operation in the middle of a series of writes that the
-application had been doing during the execution of a certain function. Therefore
+application had been doing during the execution of a certain function.
+Therefore
 from the standpoint of the library, we do not have enough information to deal
 with cases similar to these, as aside from detecting the illegal writes, there
 is no right action to take to remedy them.
@@ -971,6 +973,7 @@ from the earlier parts of this chapter. In this section we attend to these
 subtle but important left out pieces.
 
 \paragraph{C++ programming style to account for the prefill phase}
+\label{sec:conform}
 Writing programs that can both respect and leverage the prefill phases
 described previously is important to keep code readable. We can encode the
 conditions and requirements of the migration phase using C++ language features.
