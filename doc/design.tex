@@ -255,9 +255,8 @@ using MigratableUserDefinedType =
 \label{fig:migratableuserdefined}
 \end{figure}
 
-\TODO{mention AllocatorAwareContainers, and the fact that array is not one.
-Name a few that are, e.g. map, vector, etc.}
-Any C++ type which accepts an allocator (as defined by the named requirement)
+Any C++ type which accepts an allocator and uses it for all of its memory
+allocations (i.e. \texttt{AllocatorAwareContainer} named requirement in the standard)
 can be passed Slope's allocator. \autoref{fig:migratableuserdefined}
 demonstrates how a preexisting well written user defined type can be
 passed Slope's allocator without the need to change its internal implementation.
@@ -288,7 +287,9 @@ using migratable_vector = std::vector<T, slope::memory::Allocator<T>>;
 \label{fig:migvector}
 \end{figure}
 
-With this design decision, STL containers alongside many other preexisting
+
+With this design decision, STL containers (except \texttt{std::array} which
+does not satisfy \texttt{AllocatorAwareContainer}) alongside many other preexisting
 C++ structures can be easily made migratable.
 For example \autoref{fig:stdvector} shows how the declaration of
 \texttt{std::vector<T>}
