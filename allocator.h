@@ -122,6 +122,10 @@ struct FixedPoolAllocator {
     return align_to_page(n * sz);
   }
 
+  size_t get_fit_size(size_t n, size_t sz) {
+    return n * sz;
+  }
+
   T *register_preowned(const memory_chunk& owner,
       const std::vector<memory_chunk>& chunks) {
 
@@ -168,24 +172,41 @@ struct FixedPoolAllocator {
 
     auto orig_count = n;
 
-    n = get_final_size(n, sizeof(T));
-
-    auto start_addr = current_mem;
-    current_mem += n;
-
-
-    if(current_mem > mem + mem_size) {
-      throw std::bad_alloc();
+    auto fit_size = get_fit_size(n, sizeof(T));
+    T *ret = nullptr;
+    if(global_ownership_stack.back()->get_ptr() != context_to_be_initialized) {
+      auto object_id = global_ownership_stack.back()->get_ptr();
+      // deb(object_id);
+      // TODO: object allocations must not be empty
+      auto [ad, sz] = *std::prev(object_allocations[object_id].end());
+      // deb(ad + sz);
+      // deb((page_size - 1) & (ad + sz));
+      // deb(fit_size);
+      if(((page_size - 1) & (ad + sz)) && page_size - ((page_size - 1) & (ad + sz)) >= fit_size) {
+        ret = reinterpret_cast<T*>(ad + sz);
+      }
     }
+    n = fit_size;
 
-    if(mprotect(start_addr, n, PROT_READ | PROT_WRITE)) {
-      perror("mprotect");
-      assert(false);
-    }
-    auto ret = reinterpret_cast<T*>(start_addr);
+    if(ret == nullptr) {
+      auto aligned_size = get_final_size(n, sizeof(T));
+      auto start_addr = current_mem;
+      current_mem += aligned_size;
 
-    if(global_ownership_stack.back()->get_ptr() == context_to_be_initialized) {
-      global_ownership_stack.back()->set_ptr(reinterpret_cast<uintptr_t>(ret));
+      if(current_mem > mem + mem_size) {
+        throw std::bad_alloc();
+      }
+
+      if(mprotect(start_addr, aligned_size, PROT_READ | PROT_WRITE)) {
+        perror("mprotect");
+        assert(false);
+      }
+
+      ret = reinterpret_cast<T*>(start_addr);
+
+      if(global_ownership_stack.back()->get_ptr() == context_to_be_initialized) {
+        global_ownership_stack.back()->set_ptr(reinterpret_cast<uintptr_t>(ret));
+      }
     }
 
     object_allocations[global_ownership_stack.back()->get_ptr()]
@@ -210,7 +231,7 @@ struct FixedPoolAllocator {
     auto addr = reinterpret_cast<uintptr_t>(p);
     auto owner = addr_to_owner[addr];
     addr_to_owner.erase(owner);
-    sz = get_final_size(sz, sizeof(T));
+    sz = get_fit_size(sz, sizeof(T));
     auto chunk = std::make_pair(addr, sz);
     auto chunk_it = object_allocations[owner].find(chunk);
     assert(chunk_it != object_allocations[owner].end());
