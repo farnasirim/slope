@@ -38,6 +38,21 @@ size_t mem_size;
 std::vector<std::shared_ptr<OwnershipFrame>> global_ownership_stack;
 std::unordered_map<uintptr_t, uintptr_t> addr_to_owner;
 
+
+std::size_t align_to_page(std::size_t n) {
+  return (n + page_size - 1) & ~(page_size - 1);
+}
+
+std::vector<memory_chunk> chunks_to_pages(const std::vector<memory_chunk>& chunks) {
+  std::map<uintptr_t, size_t> pages;
+  for(auto [start_addr, sz]: chunks) {
+    auto prev = pages[start_addr & ~(slope::alloc::page_size - 1)];
+    pages[start_addr & ~(slope::alloc::page_size - 1)] = std::max(prev,
+        slope::alloc::align_to_page(sz));
+  }
+  return std::vector<memory_chunk> (pages.begin(), pages.end());
+}
+
 // Don't do ANYTHING else with uintptr_t as it would be UB
 // i.e. (just store and retrieve)
 std::unordered_map<uintptr_t, std::set<slope::alloc::memory_chunk>>

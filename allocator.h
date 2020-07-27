@@ -85,6 +85,11 @@ class OwnershipLock {
 
 extern std::vector<std::shared_ptr<OwnershipFrame>> global_ownership_stack;
 
+std::size_t align_to_page(std::size_t n);
+
+std::vector<memory_chunk> chunks_to_pages(const std::vector<memory_chunk>&);
+
+
 // Has to be stateless. Must not allow mem to be passed in during object
 // creation.
 template <class T>
@@ -114,9 +119,6 @@ struct FixedPoolAllocator {
     return std::make_unique<OwnershipLock>(ret);
   };
 
-  std::size_t align_to_page(std::size_t n) const {
-    return (n + page_size - 1) & ~(page_size - 1);
-  }
 
   size_t get_final_size(size_t n, size_t sz) {
     return align_to_page(n * sz);
@@ -133,15 +135,10 @@ struct FixedPoolAllocator {
     for(const auto& chunk: chunks) {
       if(chunk == owner) {
         // This is a great moment. We are reinterpreting a uintptr_t
-        // brought here from another machine, with no regard for human life.
+        // brought here from another machine, with no regards for human life.
         assert(ret == nullptr);
         ret = reinterpret_cast<T*>(chunk.first);
       }
-      if(mprotect(reinterpret_cast<void*>(chunk.first), chunk.second, PROT_READ | PROT_WRITE)) {
-        perror("mprotect");
-        assert(false);
-      }
-
       // don't need to touch global ownership stack
       // We're not allocating anything _for_ this new chunk.
 
@@ -151,15 +148,21 @@ struct FixedPoolAllocator {
       {
         std::stringstream deb_ss;
         std::string name = boost::core::demangle(typeid(T).name());
-        deb_ss << "Place " << chunk.first << " bytes"
+        deb_ss << "Place " << chunk.second << " bytes"
           << std::showbase << std::internal << std::setfill('0')
-           << " @" << std::hex << std::setw(16) << chunk.second;
+           << " @" << std::hex << std::setw(16) << chunk.first;
         deb_ss << " (" << name << ")";
         infoout(deb_ss.str());
       }
-
-      return ret;
     }
+
+    for(const auto& chunk: chunks_to_pages(chunks)) {
+      if(mprotect(reinterpret_cast<void*>(chunk.first), chunk.second, PROT_NONE)) {
+        perror("mprotect");
+        assert(false);
+      }
+    }
+
     assert(ret != nullptr);
     return ret;
   }

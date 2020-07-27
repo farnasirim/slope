@@ -133,19 +133,22 @@ bool RdmaControlPlane::do_migrate(const std::string& dest,
   // Later TODO: prefill
   // Laterer TODO: make sure prefill is pluggable
 
+  auto pages = slope::alloc::chunks_to_pages(chunks);
+
+  for(auto page: pages) {
+  }
+
   for(auto& chunk: chunks) {
     deb(chunk);
-    auto mprotect_result = mprotect(
-        reinterpret_cast<void*>(chunk.first),
-        chunk.second, PROT_READ);
-    assert_p(mprotect_result == 0, "mprotect");
+    // auto mprotect_result = mprotect(
+    //     reinterpret_cast<void*>(chunk.first),
+    //     chunk.second, PROT_READ);
+    // assert_p(mprotect_result == 0, "mprotect");
   }
 
   transfer_ownership_ping_pong(dest, chunks);
   // TODO: at this point we can also call back to the client to let them know
   // that the migration is done, before waiting for the lengthy CAS.
-
-  // TODO: broadcast ownership changes
 
   assert(keyvalue_service_->compare_and_swap(
       migrate_in_progress_cas_name_,
@@ -165,7 +168,8 @@ void RdmaControlPlane::attach_dataplane(slope::data::DataPlane::ptr dataplane) {
 void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
     const std::vector<slope::alloc::memory_chunk>& chunks) {
 
-  auto dest_qp = fullmesh_qps_[do_migrate_qps_key_].qps_[dest].get()->get();
+  auto migrate_dest_qp = fullmesh_qps_[do_migrate_qps_key_].qps_[dest].get()->get();
+  auto dest_qp = fullmesh_qps_[shared_address_qps_key_].qps_[dest].get()->get();
   auto& cq = fullmesh_qps_[do_migrate_qps_key_].cq_;
 
   {
@@ -185,7 +189,7 @@ void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
     this_wr.send_flags = IBV_SEND_SIGNALED;
     this_wr.imm_data = htonl(self_index_);
 
-    int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
+    int ret_post_send = ibv_post_send(migrate_dest_qp, &this_wr, &bad_wr);
     assert_p(ret_post_send == 0, "ibv_post_send");
     struct ibv_wc completions[1];
     while(true) {
@@ -197,13 +201,100 @@ void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
     }
   }
 
-  // DoMigrateChunk *chunks_info = new DoMigrateChunk[chunks.size()];
-  // size_t current_chunk = 0;
-  // for(auto& it: chunks) {
-  //   chunks_info[current_chunk].addr = it.first;
-  //   chunks_info[current_chunk].sz = it.second;
+  // {
+  //   struct ibv_wc chunks_completions[1];
+  //   while(true) {
+  //     int chunks_ret_poll_cq = ibv_poll_cq(
+  //         do_migrate_cq_, 1, chunks_completions);
+  //     assert_p(chunks_ret_poll_cq >= 0 && chunks_ret_poll_cq <= 1,
+  //         "ibv_poll_cq");
+  //     if(chunks_ret_poll_cq > 0) {
+  //       assert_p(chunks_completions[0].status == 0, "ibv_poll_cq");
+  //       break;
+  //     }
+  //   }
   // }
-  // delete[] chunks_info;
+
+
+
+  std::vector<DoMigrateChunk> chunks_info(chunks.size());
+  auto chunks_info_sz = chunks.size() * sizeof(DoMigrateChunk);
+  for(size_t i = 0; i < chunks.size(); i++) {
+    chunks_info[i].addr = chunks[i].first;
+    chunks_info[i].sz = chunks[i].second;
+  }
+  {
+    IbvRegMr mr(global_pd_.get(),
+        chunks_info.data(),
+        chunks_info_sz,
+        do_migrate_mr_flags_);
+    deb(chunks_info_sz);
+    deb(chunks_info.size());
+
+    struct ibv_sge sge = {};
+    sge.lkey = mr.get()->lkey;
+    sge.addr = reinterpret_cast<uintptr_t>(chunks_info.data());
+    sge.length = chunks_info_sz;
+
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
+    this_wr.wr_id = chunks_info_wrid_;
+    this_wr.num_sge = 1;
+    this_wr.sg_list = &sge;
+    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.imm_data = htonl(12345);
+
+    int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
+    assert_p(ret_post_send == 0, "ibv_post_send");
+    struct ibv_wc completions[1];
+
+    while(true) {
+      int ret = ibv_poll_cq(cq.get(), 1, completions);
+      if(ret > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        assert(completions[0].wr_id == chunks_info_wrid_);
+        break;
+      }
+    }
+  }
+
+
+  {
+    struct ibv_recv_wr *in_bad_wr;
+    struct ibv_recv_wr in_this_wr = {};
+    in_this_wr.wr_id = received_chunks_wrid_;
+    in_this_wr.num_sge = 0;
+    in_this_wr.sg_list = NULL;
+
+    int ret = ibv_post_recv(dest_qp, &in_this_wr, &in_bad_wr);
+    assert_p(ret == 0, "ibv_post_recv");
+  }
+
+  {
+    struct ibv_wc completions[1];
+    while(true) {
+      int chunks_ret_poll_cq = ibv_poll_cq(
+          do_migrate_cq_, 1, completions);
+      assert_p(chunks_ret_poll_cq >= 0 && chunks_ret_poll_cq <= 1,
+          "ibv_poll_cq");
+      if(chunks_ret_poll_cq > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        deb(completions[0].wr_id);
+        deb(received_chunks_wrid_);
+        assert(completions[0].wr_id == received_chunks_wrid_);
+        break;
+      }
+    }
+  }
+
+  // {
+  //   std::stringstream deb_ss;
+  //   deb_ss << std::showbase << std::internal << std::setfill('0')
+  //     << "addr: " << std::hex << std::setw(16) << static_cast<void*>(chunks_info.data());
+  //   infoout(deb_ss.str());
+  // }
+  debout("done ping pong");
 }
 
 void RdmaControlPlane::transfer_ownership_ping_pong(const std::string& dest,

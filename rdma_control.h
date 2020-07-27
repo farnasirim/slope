@@ -105,91 +105,114 @@ class RdmaControlPlane: public ControlPlane {
 
   template<typename T>
   mig_ptr<T> poll_migrate() {
-    // TODO: repost the recvs
+    // TODO: repost the recvs to do_migrate_qp
     std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
 
-    struct ibv_wc completions[1];
-    int ret_poll_cq = ibv_poll_cq(do_migrate_cq_, 1, completions);
-    assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "poll_migrate: ibv_poll_cq");
-    if(ret_poll_cq == 0) {
-      return mig_ptr<T>::adopt(nullptr);
-    }
+    size_t peer_index;
+    {
+      struct ibv_wc completions[1];
+      int ret_poll_cq = ibv_poll_cq(do_migrate_cq_, 1, completions);
+      assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "poll_migrate: ibv_poll_cq");
+      if(ret_poll_cq == 0) {
+        return mig_ptr<T>::adopt(nullptr);
+      }
 
-    deb(do_migrate_req_.number_of_chunks);
-    size_t peer_index = ntohl(completions[0].imm_data);
+      deb(do_migrate_req_.number_of_chunks);
+      peer_index = ntohl(completions[0].imm_data);
+    }
     deb(peer_index);
-    ibv_qp *peer_qp = fullmesh_qps_[do_migrate_qps_key_].qps_[cluster_nodes_[peer_index]].get()->get();
-    DoMigrateChunk *chunks_info = new DoMigrateChunk[do_migrate_req_.number_of_chunks];
-    auto chunks_info_sz = do_migrate_req_.number_of_chunks * sizeof(DoMigrateChunk);
+    ibv_qp *peer_qp = fullmesh_qps_[shared_address_qps_key_].qps_[cluster_nodes_[peer_index]].get()->get();
+
+    std::vector<DoMigrateChunk> chunks_info(do_migrate_req_.number_of_chunks);
+    auto chunks_info_sz = chunks_info.size() * sizeof(DoMigrateChunk);
+
+    deb(chunks_info_sz);
+    deb(chunks_info.size());
+
+    IbvRegMr mr(global_pd_.get(), chunks_info.data(), chunks_info_sz,
+        do_migrate_mr_flags_);
 
     {
-      IbvRegMr mr(global_pd_.get(), chunks_info,
-          sizeof(DoMigrateRequest) * do_migrate_req_.number_of_chunks,
-          do_migrate_mr_flags_);
+      struct ibv_sge sge = {};
+      sge.lkey = mr->lkey;
+      sge.addr = reinterpret_cast<uint64_t>(chunks_info.data());
+      sge.length = chunks_info_sz;
 
-      struct ibv_qp_init_attr qp_init_attr = {};
-      qp_init_attr.send_cq = do_migrate_cq_.get();
-      qp_init_attr.recv_cq = do_migrate_cq_.get();
-      // qp_init_attr.cap.max_send_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr;
-      qp_init_attr.cap.max_send_wr = 1;
-      // qp_init_attr.cap.max_recv_wr = static_cast<uint33_t>(dev_attrs.max_qp_wr);
-      qp_init_attr.cap.max_recv_wr = 1;
-      qp_init_attr.cap.max_send_sge = 1;
-      qp_init_attr.cap.max_recv_sge = 1;
-      // qp_init.cap.max_inline_data = 60;
-      qp_init_attr.qp_type = IBV_QPT_RC;
+      struct ibv_recv_wr *bad_wr;
+      struct ibv_recv_wr this_wr = {};
+      this_wr.wr_id = chunks_info_wrid_;
+      this_wr.num_sge = 1;
+      this_wr.sg_list = &sge;
+
+      int ret = ibv_post_recv(peer_qp, &this_wr, &bad_wr);
+      assert_p(ret == 0, "ibv_post_recv");
     }
 
-    struct ibv_sge sge = {};
-    IbvRegMr mr(global_pd_.get(), chunks_info, chunks_info_sz, do_migrate_mr_flags_);
-    sge.lkey = mr->lkey;
-    sge.addr = reinterpret_cast<uint64_t>(chunks_info);
-    sge.length = chunks_info_sz;
 
-    struct ibv_recv_wr *bad_wr;
-    struct ibv_recv_wr this_wr = {};
-    this_wr.wr_id = do_migrate_wrid_;
-    this_wr.num_sge = 1;
-    this_wr.sg_list = &sge;
+    {
+      struct ibv_wc chunks_completions[1];
+      while(true) {
+        int chunks_ret_poll_cq = ibv_poll_cq(
+            do_migrate_cq_, 1, chunks_completions);
+        assert_p(chunks_ret_poll_cq >= 0 && chunks_ret_poll_cq <= 1,
+            "ibv_poll_cq");
+        if(chunks_ret_poll_cq > 0) {
+          assert_p(chunks_completions[0].status == 0, "ibv_poll_cq");
+          assert(chunks_completions[0].wr_id == chunks_info_wrid_);
+          break;
+        }
+      }
+    }
 
-    int ret = ibv_post_recv(peer_qp, &this_wr, &bad_wr);
-
-    assert_p(ret == 0, "ibv_post_recv");
-    assert(false);
-
-//   struct ibv_wc completions[1];
-//   while(true) {
-//     int ret_poll_cq = ibv_poll_cq(cq, 1, completions);
-//     deb(ret_poll_cq);
-//     assert_p(ret_poll_cq >= 0, "ibv_poll_cq");
-//     if(ret_poll_cq > 0) {
-//       assert_p(completions[0].status == 0, "ibv_poll_cq");
-//       then = std::chrono::system_clock::now();
-//       break;
-//     }
-//     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-//   }
-//   deb(*p);
-//   auto last_addr = payload;
-// 
-// 
-
-
-    // std::vector<slope::alloc::memory_chunk> chunks;
-    // for(size_t i = 0; i < do_migrate_req_.number_of_chunks; i++) {
-    //   deb(chunks_info[i].addr);
-    //   deb(chunks_info[i].sz);
-    //   chunks.emplace_back(chunks_info[i].addr, chunks_info[i].sz);
+    std::vector<slope::alloc::memory_chunk> chunks;
+    for(auto [addr, sz]: chunks_info) {
+      deb2(addr, sz);
+      chunks.emplace_back(addr, sz);
+    }
+    // {
+    //   std::stringstream deb_ss;
+    //   deb_ss << std::showbase << std::internal << std::setfill('0')
+    //     << "addr: " << std::hex << std::setw(16) << static_cast<void*>(chunks_info.data());
+    //   infoout(deb_ss.str());
     // }
-    // delete[] chunks_info;
+    // debout("done");
 
-    // auto t_allocator = alloc::allocator_instance<T>();
+    auto& t_allocator = alloc::allocator_instance<T>();
     // // HUUUUGE TODO: owner is not necessarily the first page
-    // auto raw = t_allocator.register_preowned(
-    //     *min_element(chunks.begin(), chunks.end()), chunks);
+    auto raw = t_allocator.register_preowned(
+        *min_element(chunks.begin(), chunks.end()), chunks);
 
-    // return mig_ptr<T>::adopt(raw);
-//   }
+    // confirm receiving
+    {
+      struct ibv_send_wr *bad_wr;
+      struct ibv_send_wr this_wr = {};
+      this_wr.wr_id = received_chunks_wrid_;
+      this_wr.num_sge = 0;
+      this_wr.sg_list = NULL;
+      this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+      this_wr.send_flags = IBV_SEND_SIGNALED;
+      this_wr.imm_data = htonl(self_index_);
+      int ret_post_send = ibv_post_send(peer_qp, &this_wr, &bad_wr);
+      assert_p(ret_post_send == 0, "ibv_post_send");
+
+      while(true) {
+        struct ibv_wc completions[1];
+        int ret = ibv_poll_cq(do_migrate_cq_.get(), 1, completions);
+        if(ret > 0) {
+          assert_p(completions[0].status == 0, "ibv_poll_cq");
+          assert(completions[0].wr_id == received_chunks_wrid_);
+          break;
+        }
+      }
+    }
+
+    debout("before return");
+
+    while(true) {
+
+    }
+
+    return mig_ptr<T>::adopt(raw);
   }
 
   bool init_kvservice();
@@ -231,6 +254,8 @@ class RdmaControlPlane: public ControlPlane {
   static inline const int time_calib_rounds_ = 10;
   static inline const uint64_t do_migrate_wrid_ = 0xd017;
   static inline const uint64_t calibrate_time_wrid_ = 0xd018;
+  static inline const uint64_t chunks_info_wrid_= 0xd019;
+  static inline const uint64_t received_chunks_wrid_ = 0xd01a;
 
   std::string peer_done_key(const std::string&);
 
