@@ -2,27 +2,30 @@
 \label{chap:introduction}
 
 \section{Locality in distributed applications}
-Resource requirements of typical workloads in modern applications well surpass the
-capacity of a single machine. System designers distribute applications among clusters of
+Resource requirements of typical workloads in data intensive applications well surpass the
+capacity of a single machine. \TODO{application programmers sounds a bit too
+specific. What about: system designers design applications that can run on multiple
+machines ...} System designers distribute applications among clusters of
 machines to
 meet the storage and computation requirements of these workloads. Therefore
-designing systems that can scale across many machines becomes important as
+designing applications that can scale across many machines becomes important as
 resource requirements increase over time.
 
 In distributed applications, data access locality and load balancing
-are two important factors influencing the performance of the system. However,
-optimizing each of these usually requires the system designer to make certain
+are two important factors influencing their performance. However,
+optimizing each of these usually requires the programmer to make certain
 compromises.
 
 Let us take communication between application instances as an example.
-Instances can communicate using well known techniques such as message passing
+Instances can communicate using well-known techniques such as message passing
 or distributed shared memory, but some applications do not benefit from the
 generality of these methods even though they have to tolerate the performance
-overhead coming with the extra functionality. For example MapReduce
-\cite{dean2008mapreduce} can rarely benefit from the privilege of access to a
+overhead coming with the extra functionality. For example applications whose
+computation is expressed through the MapReduce \cite{dean2008mapreduce}
+framework can rarely benefit from access to a
 global shared memory in a synchronized manner.
 
-Like MapReduce, An interesting property of these applications is that their
+An interesting property of these applications is that their
 restricted data access pattern opens up an opportunity to trade-off simplicity
 of design to gain better performance. That is, we have the choice of using more
 strict programming models and losing some of the design flexibility that we
@@ -31,9 +34,9 @@ overheads that are present only to handle use cases that we are not interested
 in.
 
 One ubiquitous subset of applications with such property are
-ones with data that is partitionable such that the
-accesses from operations on one operation fall in that one partition only.
-This is desirable because it eliminates the access locality problem, as
+ones with data that is partitionable such that the majority of data
+accesses from one operation fall in that one partition only.
+This is desirable because it improves access locality, as
 long as we can balance the load across the cluster. Therefore the work of
 the system designer in these systems boils down to partitioning data and
 operations to minimize cross-partition requests, and find a strategy to
@@ -50,7 +53,7 @@ at a few examples from these types of applications.
 
     \subparagraph{Partitioning shipping orders by warehouse IDs:} during the
     processing of an order, there might be multiple sub-systems involved,
-    but the inventory and stock of each warehouse, are internal to
+    but the inventory and stock of each warehouse are internal to
     the warehouse partitions. Those parts of the requests that concern the
     stock and inventory can be processed internally by the shard without
     communication with other partitions.
@@ -67,22 +70,23 @@ at a few examples from these types of applications.
     partition on user IDs and the date of the action, however operations like
     querying the behavior of the user over the past
     week will end up with more cross-partition accesses than the previous
-    sharding strategy well all of the data of a user lies inside one shard.
+    sharding strategy where all of the data of a user lies inside one shard.
 
 
 \section{Solving the locality/load balancing equation}
 \paragraph{}
 Most of these applications have specific data access or data sharing patterns.
-These patterns are results of designing specialized systems for specific
+These patterns are the results of designing specialized systems for specific
 use cases like key value stores or per user statistics.
-As a result, systems designers come up with specialized data sharing methods
-which take advantage of these conditions. By designing the algorithms
+As a result, systems designers come up with specialized data access/store schemes
+such as the one used in BigTable, which take advantage of these conditions.
+By designing the algorithms
 in the system based on these methods they achieve better performance compared
 to designing the algorithms without taking into account useful properties of
 how application data is managed.
 
 This strategy improves performance but propagates design complexities
-down to the level of the core algorithms in the system. As an example, suppose
+down to the level of the core algorithms in the application. As an example, suppose
 one machine in the above distributed hash table cluster becomes a hotspot,
 One way of dealing with this situation would be for the system to somehow stop
 the incoming flow of requests to one of the hot shards, serialize that shard,
@@ -119,9 +123,10 @@ sacrificing performance (e.g. through serialization and deserialization), the
 application designers can comfortably design \emph{single partitions}, instead
 of \emph{whole distributed systems}.
 
-The platform will then ensure that each
-partition can run correctly, and that the resources on no machine are
-over-subscribed. Not only the application will achieve load balancing without
+The platform will then ensure that each partition can run correctly, while
+providing means through the use of which the application can prevent
+over-subscription of the resources of each machine in the cluster. As a result, Not only will the
+application achieve load balancing without
 much effort,
 but also it will end up with a simpler design, with all
 of the logic for a distributed environment being managed by the framework,
@@ -278,7 +283,7 @@ out of the core application code.
 % section title? Would a figure be useful?}
 
 \section{Contributions}
-To provide an answer to the above, we extend the notion of migratability that is
+We extend the notion of migratability that is
 introduced in RAMP \cite{memon2018ramp} to data structures and in general,
 self-containing units of work in distributed applications.
 We introduce
@@ -287,9 +292,9 @@ how they would interface with an object-based migration platform, in a way
 that is useful in real scenarios outside of the lab environment.
 
 We then present the design of Slope, an object-based migration framework
-and its implementation in C++ using RDMA networking and propose metrics
-to measure the performance of migration frameworks based on how they affect
-the applications.
+and its implementation in C++ using RDMA networking and present measurements
+of different operations in Slope, to show how migration affects application
+performance.
 To conclude, we provide an overview of the shortcomings of Slope and
 discuss possible future directions to improve the migratable programming model.
 
