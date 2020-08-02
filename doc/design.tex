@@ -6,6 +6,7 @@ We present the design and implementation of Slope, a migration framework which
 satisfies the requirements and conditions discussed in the previous chapter.
 
 \section{Design elements}
+\label{sec:deselem}
 Slope has to provide features such as transferring objects without serialization
 and deserialization that are rather unusual in more generic systems. We
 therefore have to carefully introduce ideas to deliver these specific capabilities.
@@ -26,7 +27,7 @@ This reservation is done at program construction time
 We will refer to this section of the virtual
 address space as migratable memory or Slope memory. Note that mappings for
 these pages are not yet generated and therefore the size of the Slope memory
-region can be expanded to the whole 64 bits of address on current machines.
+region can be much larger than the amount of physical memory on machine.
 
 To synchronize accesses to memory during the migration process, we need a way
 to control accesses to the pages in Slope memory. We therefore choose to manage
@@ -63,7 +64,7 @@ housekeeping tasks to be taken care of. For example the object must not have
 any references to resources falling outside of the migratable memory. These
 could be objects in non-migratable memory, or file descriptors, which refer
 to resources beyond the scope of the application. Memory allocation
-and deallocation must be handled too to avoid objects from overwriting each
+and deallocation must also be handled to prevent objects from overwriting each
 others' pages during a migration.
 
 Starting from the local memory layout, all of the design elements and
@@ -86,12 +87,14 @@ template<typename T> class ptr_hash<T*> {
   }
 };
 int main() {
-  std::unordered_map<int*, int, ptr_hash<int*>> m;
-  std::vector<int> v(0);
-  // v.reserve(2); // Uncommenting will result in passing the assert
-  v.push_back(1); m[&v[0]] = 1;
-  v.push_back(2);
-  assert(*(m.begin()->first) == m.begin()->second); // fails
+  std::unordered_map<int*, int, ptr_hash<int*>> the_map;
+  std::vector<int> the_map(0);
+  // Uncommenting will result in passing the assert
+  // the_vector.reserve(2);
+  the_vector.push_back(1);
+  the_map[&the_vector[0]] = 1;
+  the_vector.push_back(2);
+  assert(*(the_map.begin()->first) == the_map.begin()->second); // fails
 }
 \end{lstlisting}
 \caption{
@@ -99,31 +102,48 @@ int main() {
 }
 \label{fig:localmemorymanagementfundamental}
 \end{figure}
-It is important to note that although strict and inflexible, the requirement of
+
+
+
+
+It is important to note that the requirement of
 placing Slope memory on the same virtual address in all machines is,
 unfortunately, a fundamental requirement. \autoref{fig:localmemorymanagementfundamental}
-shows an example of why this is the case. It shows the creation of a hash
+shows an example of why this is the case.
+
+Lines $1-8$ show the creation of a hash
     function for pointers which simply uses their value, which is a virtual
     memory address. The vector needs to move the contents of its underlying
-    array to a bigger array before inserting the second element. At this point, from the viewpoint of
-    \texttt{m}, \texttt{v} has ``moved'', effectively shifting its start
-    address to a new virtual address. \texttt{m} has no way of figuring out
-    the new address and no way of translating its address dependencies.
+    array to a bigger array before inserting the second element at line $16$.
 
-In contrast, had the map stored indices instead of addresses, allowing them
-to be translated to addresses internally in the map, this would not have been
-a problem. \autoref{fig:refbyindex} demonstrates this. In this example,
-the second call to \texttt{push\_back()} changes \texttt{\&v[0]}, however this
-will not pose a problem since no object depends on it apart from \texttt{v}.
+    At this point, from the viewpoint of
+    \texttt{the\_map}, \texttt{the\_vector} has ``moved'', effectively shifting its start
+    address to a new virtual address. \texttt{the\_map} has no way of figuring out
+    the new address and no way of translating its address dependencies.
+    This means the address of the first element of \texttt{the\_vector} will
+    change after executing line $16$, causing the assert in line $17$ to
+    fail.
+
+Uncommented, line $13$ would have ensured that the vector has
+    allocated an underlying array that is big enough to hold 2 integers without
+    the need to allocate a bigger array after the second \texttt{push\_back} in
+    line $16$.
+
+
+
+
+
 
 \begin{figure}[tp]
 \begin{lstlisting}
 int main() {
-  std::unordered_map<int, int> m;
-  std::vector<int> v(0);
-  v.push_back(1); m[0] = 1;
-  v.push_back(2); // results in v[0] being moved
-  assert(v[m.begin()->first] == m.begin()->second); // succeeds
+  std::unordered_map<int, int> the_map;
+  std::vector<int> the_vector(0);
+  the_vector.push_back(1);
+  the_map[0] = 1;
+  the_vector.push_back(2); // results in the_vector[0] being moved
+  assert(the_vector[the_map.begin()->first] == the_map.begin()->second);
+  // succeeds
 }
 \end{lstlisting}
 \caption{
@@ -131,6 +151,14 @@ int main() {
 }
 \label{fig:refbyindex}
 \end{figure}
+
+
+In contrast, had we stored indices instead of addresses in \texttt{the\_map},
+allowing them to be translated to addresses internally, we could have prevented
+the problem. \autoref{fig:refbyindex} demonstrates this approach. In this example,
+the second call to \texttt{push\_back()} at line $6$ changes \texttt{\&the\_vector[0]},
+however this will not pose a problem since no object depends on this address
+value apart from \texttt{the\_vector}.
 
 The implication is as long as the
 application has any means of referencing the underlying virtual address of any
@@ -156,8 +184,8 @@ owns the $i$th $\frac{1}{n}$ of Slope memory.
 
 We can simplify the distributed ownership of memory if we only allow the
 machines to allocate memory from the section that they own, however this may
-result in memory address load imbalance. If one machine keeps
-allocating objects and then quickly migrates them to the other machines. The
+result in memory address load imbalance. For example if one machine keeps
+allocating objects and then quickly migrates them to the other machines, the
 $\frac{1}{n}$ of the Slope memory belonging to this machine will soon run out,
 and the machine will not be able to create any more migratable objects
 even though the global Slope memory and the node's local physical memory are
@@ -196,16 +224,31 @@ the lease ownership to itself or other machines for any of the leases it is
 responsible for.
 
 
-Machines allocate memory pages from the lease ranges they own. Initially when
+Machines allocate virtual memory pages from the lease ranges they own. Initially
+when
 the machines do not own any leases to allocate from, or when the unallocated
 memory in the
 ranges that they already own does not suffice for their new allocations, they
 need to ask for a new lease. To solve the memory imbalance problem, each node
-will locally decide to direct its request for a new lease to the machine which
-has the highest number of free leases. Each machine broadcasts this information
-to the cluster in long intervals. We set the lease sizes to be 1GB and
-make each machine broadcast the number of leases it has available every 10
-seconds.
+will decide to direct its request for a new lease to the machine which
+has the highest number of free leases based on its local information.
+Each machine broadcasts information about their allocations, including
+the number of free lease ranges to the cluster in preset intervals.
+
+The length of the broadcast interval and the size of the lease ranges are two
+parameters that we must choose based on the application. Shorter broadcast
+intervals and smaller lease ranges will result in finer grain control over
+how well we balance the memory allocations among the cluster machines.
+
+In our experiments we set the lease sizes to 1GB and
+make each machine broadcast its information every 1 second. In a 4 machine
+setting and several memory allocation workloads, both values were small enough
+to keep the maximum difference between the
+allocated memory in any two machines to at most 2GB at all times.
+Furthermore, varying the size from
+500MBs to 5GBs and the interval from 0.5s to 5s did not yield any meaningful
+difference in any of the observations.
+
 
 The 1GB size allows for lease requests to be infrequent enough to amortize
 seamlessly over the number of allocations, while keeping them small enough
@@ -230,12 +273,6 @@ for leases at the same time.
 
 \subsection{Memory allocator}
 \label{sec:platform}
-The strict local and distributed memory requirements discussed in the previous
-section suggest that we should manage the Slope memory using a custom memory
-allocator. Since Slope requires intimate access to the application
-memory, we need to choose a low level platform with first class support for
-memory management.
-
 We have chosen C++ as the platform to implement Slope, mainly because we need
 to directly access process memory and manage the way it is allocated and used.
 We implement \texttt{slope::memory::Allocator<T>} which is a memory allocator
@@ -360,6 +397,8 @@ if it has a possibility of calling \texttt{allocate()} on Slope allocator, it
 must be enclosed in a context. We call this behavior ``allocating memory for
 an object''.
 
+\TODO{This is a simplified example, but for consistency, it would be good to show the object creation and the invocation of the migratable object's run() method (with the memory accesses, put and get, inside the run method...)}
+
 \begin{figure}[tp]
 \begin{lstlisting}
 using HashTablePartition = DistributedPartition<
@@ -408,6 +447,7 @@ migratable memory. This is an important step since we are not necessarily able
 to construct the object elsewhere and then manually move it into the migratable
 memory.
 
+
 \subsection{Ownership management summary}
 We will go over an example scenario to show how different layers of memory
 ownership work together. Take the code snippet from \autoref{fig:migptrusage}
@@ -446,14 +486,17 @@ We return from the \texttt{allocate()} function and the initialization context
 will be removed from the context stack.
 
 We return from the constructor of the \texttt{HashTablePartition} and then
-the migratable pointer. The call to \texttt{create\_context()} on line 16 
+the migratable pointer. The call to \texttt{create\_context()} on line 16
 will place
 \texttt{ptr}'s context at the top of the context stack. As a consequence, all of the
 Slope memory allocations will be assigned to \texttt{ptr} until further change
 to the context stack. We call into the \texttt{put()} member function, which
 results in a call to \texttt{allocate()}. More memory will be allocated from
 the page that embodies the \texttt{HashTablePartition} object since that page
-still contains some empty space. With its context present at the top of
+still contains some empty space, otherwise for a large memory request we would
+have allocated one or more new pages to accommodate the request.
+
+With its context present at the top of
 the context stack,
 \texttt{ptr} will own the newly allocated memory. Afterwards the context will
 go out of scope, resulting in \texttt{ptr}'s context being removed from the
@@ -464,10 +507,49 @@ It is important to note that allocated memory is not necessarily mapped to
 physical memory. As an example if the \texttt{ptr} object from
 \autoref{fig:migptrusage} is migrated to Machine 3, its underlying memory
 will remain allocated from the standpoint of Machine 1 which is responsible for
-the lease lease range under \texttt{ptr}.
+the lease range under \texttt{ptr}.
 However Machine 1 will unmap those memory pages after the migration.
 In contrast, on Machine 3, those pages will indeed be mapped to
 physical memory after the migration.
+
+
+\subsection{Choice of platform}
+Allowing the application's data structures to rely on virtual memory
+addresses directly, raises issues that we discussed in \ref{sec:deselem}. Many
+of these could have been prevented if we had used a programming language such
+as Java, which takes away this direct access, making the objects relocatable.
+
+Even though Java provides certain features for portability and compatibility,
+For some applications the overhead of being run in a managed environment
+(e.g. under a garbage collector) is intolerable. A typical family of these
+applications is distributed transaction
+processing engines which includes Silo \cite{tu2013silo}, DrTM \cite{drtm2017},
+and FaRM \cite{Dragojevic2014FaRM}. These are implemented in C++ to
+reach the maximum possible performance and usually depend on lower level
+components such as concurrent b-trees (e.g. Masstree \cite{mao2020masstree}).
+
+Our motivation in using C++ for the design of Slope stems from the difficulty
+of scaling such applications beyond a single node or designing them for a
+multi-node cluster in the first place, and keeping the cluster load balanced.
+The lower level dependencies of
+these applications that may be optimized for single-node environments also
+make it non-trivial to cross the gap from a single node to multiple nodes.
+
+We design Slope for use in high performance applications where it is not
+desirable to sacrifice performance to achieve load balancing and flexibility
+in design. This means Slope provides a lower level function compared to
+automatic serializability of objects in Java.
+We can in fact use Slope to implement
+an automatic layer of serializability or a migration platform in a higher
+level language like Java with the possible added performance cost of running on
+top of JVM. On the other hand, such a system can provide an API that is simpler
+to use for the programmers since many of the house keeping tasks (e.g.
+\texttt{create\_context()}) are already done or partially taken care of by the JVM.
+
+\TODO{I don't think you previously discussed your assumptions on the machine capabilities - at least, not all in one place. You are certainly assuming they have RDMA-capable networking hardware, and it is reasonable to assume that such machines are also equipped with large physical memory. You are also assuming they are homogenous enough to all run the same application binary and access the objects without serializing/deserializing (so, same byte order). You also assume there may be some heterogeneity (i.e., some machines equipped with accelerators like GPUs). I think these are all reasonable assumptions, but you should pull them all together (in the introduction) and explain clearly the target environment for a system like Slope. }
+
+\TODO{
+    You need to provide more information on the implementation of Slope itself, not just the usage. Show the complete API for the migptr with a brief description of each of its methods. For the most important, createcontext method, give its pseudocode. Similarly, give the pseudocode for the custom allocate and deallocate functions. }
 
 \section{RDMA background}
 RDMA programming model turns out to be a good fit for the networking
@@ -475,7 +557,7 @@ requirements of Slope. While we do benefit particularly from
 offloading data plane processing from the source CPU to the network device,
 RDMA networking can still be swapped out of Slope for other transports.
 
-To send or receive data using kernel-based TCP, the application needs thread
+To send or receive data using kernel-based TCP, the application thread
 is woken up multiple times by the kernel and has to call into the kernel
 repeatedly, copying all of the payload between user and kernel space buffers.
 RDMA networking prevents this by 1. allowing data to be sent/received without
@@ -492,7 +574,7 @@ An Infiniband subnet consists of hosts and switches that are interconnected
 through their Infiniband adapters or Host Control Adapters (HCA).
 Each subnet requires at least one Subnet Manager (SM) to function.
 Infiniband switches or end hosts may play the role of SM. Multiple SMs
-work in Active-Stand by mode. Among more complicated tasks such as managing
+work in active-standby mode. Among more complicated tasks such as managing
 routing throughout the local subnet and possibly through the global Infiniband
 Fabric, one of the responsibilities of the SM is assigning unique local
 identifiers (\texttt{lid}s) to each port connected to the current subnet, not much
@@ -537,7 +619,7 @@ such as the completion of a send request.
 
 To send data using the RDMA SEND verb, the application needs to ``post'' one
 or more send Work Requests (WRs) to the send queue of a QP. Among other fields
-to control its behavior, a WR is consisted of one or more
+to control its behavior, a WR consists of one or more
 continuous memory ranges that need to be sent through a QP. Each of these
 is called a Scatter-Gatter Element (SGE). However the network device must be
 able to access the memory pages that the SGEs point to through their physical
@@ -550,7 +632,7 @@ deregistered. To process the SEND request, the network device might reference
 addresses from MRs that the SGEs point to, until that particular WR is
 processed which means we are not allowed to write to those regions during
 the time SEND is being processed. By default, a successful SEND request will
-create a CQEs upon completion. The application can be notified of the completion
+create a CQE upon completion. The application can be notified of the completion
 of the SEND WR by polling the CQ that is associated with the QP. After receiving
 the completion, the application is free to deregister and/or write to the
 memory under the MR.
@@ -593,12 +675,12 @@ Completion Queue Entries (CQEs) which reveal the source of the completion.
 
 
 \section{Architecture}
-At a high level, Slope consists a control plane, responsible for carrying out
-different phases of the migration operation and provide the means for the
-servers to send and receive metadata to eachother, a data plane, in this case
+At a high level, Slope consists of a control plane, responsible for carrying out
+different phases of the migration operation and providing the means for the
+servers to send and receive metadata to each other, a data plane, in this case
 over RDMA which handles sending and receiving memory pages,
 and a specialized distributed memory management scheme, described earlier in the
-chapter. Slope's migration protocol is built atop the above sub-systems.
+chapter. Slope's migration protocol is built atop these sub-systems.
 
 % We have implemented the control plane and the data plane using
 % RDMA over Infiniband because of how well the benefits of RDMA networking
@@ -609,11 +691,15 @@ The control plane provides an abstraction over which application instances can
 execute migration operations and other side-tasks such as exchanging internal
 system metadata or distributed memory allocation. For each operation we create
 a reliable connected queue pair between each pair of machines, and pre-post to
-them as many receive requests as we need to support concurrently. When a
-machine pulls out a work completion from the completion queues assigned to
-these queue pairs, a receive buffer is reposted to the corresponding queue to
-make up for any other incoming requests, and a request flow starts during which
-the two machines will go back and forth to carry out the operation.
+them as many receive requests as we need to support concurrently. In our
+experiments we found posting one read request for every core in the peer machine
+will always prevent the sender from blocking.
+
+Each machine immediately reposts
+the consumed read request after receiving a completion, which further ensures
+that the presence of read requests at every queue end. After that a request
+flow starts during which the two machines will go back and forth using other
+established queue pairs to carry out the operation.
 
 % Although
 % the control plane can be practically replaced by any rpc framework, we do not
@@ -652,12 +738,13 @@ the two machines will go back and forth to carry out the operation.
 
 \subsection{Data plane}
 The data plane is used to transfer contents of pages of Slope
-memory from one machine to the same page addresses in another node. As we
-will see when discussing the migration protocol, the data plane is used
-in two separate phases called \emph{prefill} and \emph{transfer}. The prefill
-phase sends the pages of a migratable object to the destination with
-relaxed consistencies, and is followed by transfer, which ensures that the
-object is sent correctly and is in a valid state at the destination.
+memory from one machine to the same virtual page addresses in another node.
+The role of the data plane is discussed in detail in \ref{sec:migrationprotocol}.
+It is responsible for the \emph{prefill} operation, during which it will
+transfer pages of memory, but also keep track of any changes made to them on
+the source, and the \emph{transfer} operation, which corrects the discrepancies
+resulted from writes to the source memory during the prefill phase by
+retransferring certain pages.
 
 % relaxed consistency requirements. Transfer operation follows shortly, during
 % which we ensure the contents of the above memory section in the source are
@@ -686,7 +773,7 @@ of Slope at different stages during the above timeline.
 
 We observe the lifetime of a migratable data structure from the point it is
 created until after we finish migrating it to another node. As discussed
-later in the section in detail, throughout the
+later in the section in detail, throughout the migration
 there are certain conditions that need to be satisfied by the application
 for the migration operation to finish correctly.
 
@@ -694,8 +781,9 @@ for the migration operation to finish correctly.
 During this phase the source machine calls into the Slope library multiple
 times, based on how many times memory allocation and deallocation is required.
 
-\paragraph{Source} creates a migratable object. Let us call this object
-the target object. Up until the point that
+\paragraph{Source}
+creates a migratable object, which we will refer to as the \emph{target object}.
+Up until the point that
 the source initiates the migration, all of the memory allocations of the target object
 must happen through
 Slope's custom memory allocator through allocation contexts as discussed in
@@ -703,6 +791,11 @@ Slope's custom memory allocator through allocation contexts as discussed in
 The application must enclose the memory allocations of the migratable objects
 with the correct allocation contexts to make sure Slope correctly keeps track of the
 memory that each object references.
+
+
+\TODO{
+    I have some questions about the programming model at this point, which probably should be cleared up earlier (Chapter 1, along with system assumptions). Should the application spawn a new thread to execute the run() method of each migratable object? Does the run() method only return upon the destruction of the object (where migration to another machine results in local destruction)? Or can the run() method just perform some initialization/setup for the object and then return, leaving the object in a usable state where its methods can be invoked from other code. How does the requirement to invoke the object's run() method interact with the ability to compose migratable objects into larger migratable objects?
+}
 
 After the object is created the program will call the \texttt{run()} method
 of the object, which may result in further calls to the memory allocator as
@@ -725,12 +818,19 @@ stayed unaware of the existence of this object.
 
 \paragraph{Source}
 initiates the migration by calling into Slope. From this point
-on, the application instance on the source machine is neither allowed to
-cause any memory to be allocated to the target object, nor can it deallocate any memory that
+on, the application instance on the source machine should neither
+cause any memory to be allocated to the target object, nor should it deallocate any memory that
 this object references. Each of these can result from calling member functions
 of the target object which either deallocate Slope memory previously held by the
 object, or create Slope memory allocation contexts from the object and
 use them to allocate Slope memory for the object.
+
+The application is responsible
+to ensure that these conditions hold. Currently Slope throws an exception if such
+behavior is observed and for example in the case of \texttt{deallocate()}, the
+escape of the exception from the function results in undefined behavior.
+\autoref{sec:optim} briefly discusses how we can improve on this by relaxing
+these requirements.
 
 This means the underlying Slope memory owned by this object is now
 fixed. The application can continue to read or write to the memory that the
@@ -738,40 +838,40 @@ object already owns, until further on in the process when it receives a
 notification from the Slope library. This notification signals that source
 machine no longer owns the object, prohibiting this machine from any
 interaction with the target object, including reading from or writing to its
-memory. This will be discussed in detail in the following sections.
+memory. This will be discussed in detail in \autoref{sec:transowner}.
 
 Slope posts a send request to the QP that is shared
 between the source and the destination, initiating the migration.
-With this request, the source will include $n$ the total number of
+With this request, the source will include $p$ the total number of
 memory pages that the target object references. Note that Slope requires the
 memory pages owned by the target object to stay the same during the migration
-process after a call which initiates the migration, which means $n$ will be
+process after a call which initiates the migration, which means $p$ will be
 constant throughout the process.
 
 \paragraph{Destination}
-receives a migration request along with $n$, the number of memory pages that the
+receives a migration request along with $p$, the number of memory pages that the
 target object owns and therefore need to
 be transferred. The destination then populates another QP shared with the source
-with $n$ receive requests, each corresponding to one of the virtual memory pages
+with $p$ receive requests, each corresponding to one of the virtual memory pages
 that underlie the target object. We switch to a different QP
 to allow concurrent migrations to happen between pairs of nodes. The destination
-then goes on to notify the source that it can receive the description of the $n$
-pages. The destination needs to know the page addresses
+then goes on to notify the source that it can receive the description of the $p$
+pages. The destination needs to know the virtual page addresses
 to first create mappings for them and then pin them in physical memory so that their
 physical address will stay the same throughout the migration, while the network
 device writes to the pages by their physical address over DMA.
 
 \paragraph{Source} receives the clear to send from the destination and sends the starting address
-of each of the $n$ pages to the destination. 
+of each of the $p$ pages to the destination. 
 
-\paragraph{Destination} waits for $n$ page addresses, and for each one of them, pins the
+\paragraph{Destination} waits for $p$ page addresses, and for each one of them, pins the
 corresponding page in physical memory, so that the addresses that underlie the
 target object can be used in RDMA read and write verbs. Notice how
-``pro-active'' strategies which do not require knowledge of the page addresses
+``pro-active'' strategies that do not require knowledge of the page addresses
 will not work, as pinning the
 whole Slope memory in the physical memory will in the worst case, exhaust the
 available physical memory on some nodes, and in the best case, result in large
-amounts of wasted physical memory space. When the $n$ pages are pinned
+amounts of wasted physical memory space. When the $p$ pages are pinned
 and are ready to be the target of the RDMA verbs, the destination responds back,
 signaling that it has pinned all of the required pages.
 
@@ -779,7 +879,7 @@ signaling that it has pinned all of the required pages.
 The goal of the prefill phase is to warm up the destination machine's memory to
 minimize the window of time during which none of the two participating machines
 own the target object. No machine can read from or write to the object during
-that time. Therefore a long window without no owners means a long throughput
+that time. Therefore a long window with no owner means a long throughput
 and latency hiccup as the application does not make any progress.
 
 During the prefill phase we copy the target object to the destination over RDMA.
@@ -795,6 +895,8 @@ dirtied, we go through the prefill phase, hoping that one of the
 machines (namely the source machine) will be able to partially function during
 this phase, while dirtying a small percentage of the pages.
 
+\TODO{This paragraph sounds like you first loop through all the pages in Preparation, and then loop through all the pages again to Send them. But after reading the rest of it, and based on the Figure, I think you loop through all the pages, and for each page, perform the Preparation and Send steps. }
+
 \paragraph{Source} will need to loop through the memory pages of the target
 object to prepare them to be read safely by the network device. It will then
 need to use RDMA WRITE to send them to the destination, but before it is ready
@@ -802,15 +904,18 @@ to go through these, it must put in place the means to detect the pages that
 are dirtied. A page will be dirtied when a write takes place in it, after
 it is sent to the destination.
 
+\TODO{Re-order the presentation of the Prefill steps so that you start with Preparation, followed by Send, and finish with Dirty Page Detection. You will need to re-write parts of Send and Dirty Page Detection so that they make sense in that order. Right now, the details of dirty page detection depend on actions taken during Preparation and interact tightly with the Send steps, so it is harder to understand when it comes first.}
+
 \subparagraph{Dirty page detection:}
 This will be done using memory mapping protections and manually
 handling signals that
 are raised as a consequence of accesses to the protected memory pages.
 
-First, the source overrides the default behavior of handling the
-\texttt{SIGSEGV} signal using a call to
-\texttt{sigaction}, to prevent the program from terminating on invalid memory
-references. It is important to keep in mind that \texttt{SIGSEGV} is delivered
+Machines use overridden behaviors for handling the \texttt{SIGSEGV} signal
+to prevent the program from terminating on invalid memory references.
+The \texttt{SIGSEGV} handler is installed at program start.
+It is important to keep in mind that
+\texttt{SIGSEGV} is delivered
 to the \emph{same} thread whose current instruction reads or writes memory
 from a page that does not have the required permissions.
 
@@ -821,19 +926,14 @@ is in progress. These writes will result in a \texttt{SIGSEGV} signal being
 raised because of an invalid memory reference, and the thread will start
 executing our custom \texttt{SIGSEGV} handler.
 
-Inside the signal handler, we make note of the address the access
-to which caused the signal to be raised. This can be found in the
-\texttt{si\_addr} field from the
-\texttt{struct {*}siginfo\_t} which is passed to the handler.
-Assuming this is an address in a
-page that the target object owns, we mark the page containing the address as
+Inside the signal handler, we make note of the accessed address that
+caused the signal to be raised. We mark the page containing the address as
 dirty. In the simplest case, the RDMA WRITE corresponding to this page has
 previously finished. We update the protection flags of this page back
 to \texttt{PROT\_READ | PROT\_WRITE}
 to allow further writes to the addresses in this page to succeed.
 
-Otherwise the RDMA WRITE is still in progress in which case we need to be
-more careful. In this case we need to wait for the
+Otherwise the RDMA WRITE is still in progress in which case we need to wait for the
 RDMA WRITE to finish before adding the \texttt{PROT\_WRITE} permission flag to
 the page. In our
 implementation we use a conditioned shared mutex where the thread which carries
@@ -882,6 +982,7 @@ owns, using the above procedures and keeps track of which of them is dirtied
 over time.
 
 \subsubsection{Transfer of ownership}
+\label{sec:transowner}
 
 Contrary to case of detecting the pages that become dirty, which can be done
 as described above, prevention of this phenomenon cannot be dealt with this way.
@@ -971,9 +1072,12 @@ there.
 
 
 \section{Optimizations and Corner cases}
+\label{sec:optim}
 Multiple optimizations opportunities and housekeeping tasks have been omitted
 from the earlier parts of this chapter. In this section we attend to these
 subtle but important left out pieces.
+
+\TODO{relaxed no alloc/dealloc requirement during the migration, more thread safety requirements}
 
 \paragraph{C++ programming style to account for the prefill phase}
 \label{sec:conform}
