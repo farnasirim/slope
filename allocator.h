@@ -175,6 +175,7 @@ struct FixedPoolAllocator {
 
     auto orig_count = n;
 
+    // TODO: fix alignment
     auto fit_size = get_fit_size(n, sizeof(T));
     T *ret = nullptr;
     if(global_ownership_stack.back()->get_ptr() != context_to_be_initialized) {
