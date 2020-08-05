@@ -52,7 +52,11 @@ page overhead.
 Examples of these objects include bloom filters, where we have a fixed
 array of bits the size of which always stays the same.
 Similarly hash tables which use open addressing techniques such as cuckoo
-hashing scheme for their collision resolution are also good candidates.
+hashing scheme for their collision resolution are also good candidates for the
+same reason.
+Apart from these objects which make the best-case scenario for Slope, we also
+discuss more generic objects whose allocation/deallocation patterns are not
+ideal.
 
 \section{Case study: core metrics}
 In this section we measure the performance of each micro operation in Slope

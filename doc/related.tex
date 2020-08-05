@@ -1,6 +1,6 @@
 \chapter{Related Work}
 \label{chap:related}
-In this section we discuss how research on smililar topics relates to
+In this section we discuss how research on similar topics relates to
 Slope, what makes Slope different, and how ideas from prior work across
 multiple categories can be incorporated into Slope in the future.
 
@@ -9,7 +9,7 @@ Slope borrows the notion of shared address spaces from RAMP
 \cite{memon2018ramp}. This closely relates RAMP and Slope and therefore
 a rundown of the differences between the two systems can be helpful.
 
-\subsection{Programmability}
+\paragraph{Programmability:}
 Slope makes data structures or more generally, self-contained units of
 work migratable in a black box fashion, without forcing modifications to
 their implementations in existing applications.
@@ -25,18 +25,18 @@ migration of memory segments,
 but also uses a stateful memory allocator which makes it
 backwards incompatible with existing C++ software.
 
-\subsection{Usability}
+\paragraph{Usability:}
 We present a programming model for migratable objects which makes them
 usable in at least two broad families of applications as discussed in
-\ref{sec:api}, showing how this model can be used for high performance
+\autoref{sec:api}, showing how this model can be used for high performance
 applications in the real world.
 
 On the other hand, RAMP introduces a bare bones memory segment migration
 platform which outside of a controlled experiment will be at most as
 useful as an RDMA-based transport, if at all usable,
-because of the reasons discussed in the \ref{subsec:sendrecmig}.
+because of the reasons discussed in \autoref{subsec:sendrecmig}.
 
-\subsection{Migration performance}
+\paragraph{Migration performance:}
 Based on the type of workload, Slope benefits from prefilling the
 destination machine's memory, resulting in smaller hand-off times and
 quicker convergence to the steady state throughput.
@@ -55,7 +55,7 @@ pre-posted to their queue pairs, whereas in RAMP, at any point in time
 there can be at most a single migration in the \emph{whole cluster}.
 
 
-\subsection{Memory allocation performance}
+\paragraph{Memory allocation performance:}
 Slope uses pooled memory allocation and lazy deallocations to handle
 memory allocation in a peer-to-peer fashion.
 
@@ -96,7 +96,7 @@ can be plugged into Slope as its control plane to improve its performance
 in the cases where there are relatively large number of objects being
 migrated at certain points in time.
 
-Given that the design of Slope focuses on in memory data structures, there
+Given that the design of Slope focuses on in-memory data structures, there
 is a lot of potential in using specialized memory hardware. DrTM
 \cite{drtm2017} builds on hardware transactional memory and RDMA
 to achieve high throughput transaction processing.

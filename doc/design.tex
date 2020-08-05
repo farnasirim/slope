@@ -936,14 +936,29 @@ to allow further writes to the addresses in this page to succeed.
 Otherwise the RDMA WRITE is still in progress in which case we need to wait for the
 RDMA WRITE to finish before adding the \texttt{PROT\_WRITE} permission flag to
 the page. In our
-implementation we use a conditioned shared mutex where the thread which carries
-out the RDMA operations is the writer and the threads that may call into the
-signal handler are potential readers. As a result, each thread will will block
-inside the signal handler until
-the address to which they are trying to write acquires the correct permission.
-\autoref{fig:dirtydetection} shows the execution flow of multiple threads
-as each of them they fall into one of the above cases while Slope prefills a
-page.
+implementation we use a status flag and a condition variable for each page
+to manage its write accesses inside the signal handler. The status flag
+corresponding to a page shows whether or not the RDMA operation on a that page
+has finished, hence allowing us to write to it, and the condition variable
+is used to wake up the threads waiting for the above status flag to be set.
+
+Each thread will will block inside the signal handler until
+the RDMA operation is finished. They will be notified about this through the
+condition variable. When the first thread from the ones waiting inside the
+signal handler acquires the lock on the condition, it needs to write to a
+page that is marked clean, and does not have the \texttt{PROT\_WRITE}
+permission. Therefore this thread sets the correct flag and marks the page as
+dirty.
+
+From this point on, no other thread writing to this address enters the
+handler and the threads that were already waiting for the lock inside the
+handler do not need
+to carry out any other steps after regarding the status flag and the page permissions
+after acquiring the lock and they will
+return from the handler without further action, allowing their previously
+faulting write to succeed.
+\autoref{fig:dirtydetection} shows the execution flow of application threads
+and how they cooperate in dirty page detection in the prefill phase.
 
 \begin{figure}[tp]
 \centering
@@ -954,8 +969,8 @@ page.
     Execution flow of different application threads during the migration of
     the 4KB page at \texttt{0xc000} which at some point in time becomes dirtied.
     Time progresses downwards and the prefill has been started before all of
-    the events in the figure. Notice how thread t2 coincidentally never
-    deviates from its happy path.
+    the events in the figure. Notice how thread t2 writes to the page after the
+    RDMA transfer completes and the page is already marked dirty and writable.
 }
 \label{fig:dirtydetection}
 \end{figure}
@@ -972,9 +987,12 @@ source and the sink, to be written to its corresponding virtual address in
 destination over RDMA. Notice that we do not put the \texttt{PROT\_WRITE} permission
 of the current page back after the RDMA SEND finishes, as we need to
 detect any future writes which will dirty the page.
-However we do set a condition variable which a threads running the signal
-handler will check to know whether or not it is clear to put the \texttt{PROT\_WRITE} flag back.
-At any point in time the clean pages will have their condition variable unset,
+
+We assign a page access status to each page and set it to ``not writable''. A
+thread running the signal handler will wait for this flag to be set to ``writable''
+at the end of the RDMA operation, to proceed with putting back the \texttt{PROT\_WRITE}
+flag back.
+At any point in time the clean pages will have their access status flag unset,
 which is how we distinguish between the dirty and clean pages.
 
 One by one, the source prepares and writes each page that the target object
@@ -983,46 +1001,27 @@ over time.
 
 \subsubsection{Transfer of ownership}
 \label{sec:transowner}
+After the prefill phase we need to take away the access of the source machine
+to the target object by unmapping its underlying virtual memory pages, and
+granting the correct permissions to those pages on the receiver side. The source
+machine is responsible to call for the transfer of ownership at a point in time
+after which it never attempts to writes to or read from the target object,
+otherwise Slope will terminate the program.
 
-Contrary to case of detecting the pages that become dirty, which can be done
-as described above, prevention of this phenomenon cannot be dealt with this way.
-For example we may try to set \texttt{PROT\_NONE} permission on a page to
-prevent accesses to it after we have started to send it to the destination.
-The reason why this will not work will be discussed in the next section.
-
-
-This cannot be correctly enforced by means such as setting the
-\texttt{PROT\_NONE} on these pages. First, we might need multiple
-\texttt{mprotect} calls to accomplish this if the pages are not adjacent,
-meaning that we cannot assume the access to the object is ceased at a single
-point in time. Furthermore even if we are able to take away the access to all
-of the memory under the target object at once, if an application thread is
-currently in the process of writing to the above memory, there is no right
-action we can take from outside the application. For example this might have
-been one write operation in the middle of a series of writes that the
-application had been doing during the execution of a certain function.
-Therefore
-from the standpoint of the library, we do not have enough information to deal
-with cases similar to these, as aside from detecting the illegal writes, there
-is no right action to take to remedy them.
-
-\label{sec:transferownership}
 At this point we are ready to turn the ownership over to the destination.
 We also have to notify the application at the source to stop referencing the
 target object for both reads and writes before we can proceed.
 
 \paragraph{Destination} receives the completions for the prefill RDMA WRITEs.
-That is because those WRITEs are done with immediate values which will results
-in completion entries to be created for them. After the destination
+That is because those WRITEs are done with immediate values which results
+in completion entries being created for them. After the destination
 receives the completion of the
 last SEND, it will send a request back to the source, asking the source to
 finally give up the ownership of the object.
 
-\paragraph{Source} calls back to the application upon receiving the above
-message to make sure the application will not reference the target object
-for either of reads or writes after the callback returns. The application is
-therefore responsible to block the callback an notifies all of its threads to
-finish their ongoing operations on the target object. The application will
+\paragraph{Source} will need to call for the ownership transfer to start, after
+it notifies all of its threads and objects to stop referencing the target
+object. The application will
 ideally transition to a ``pre-transfer'' mode after the initial migration
 initiation. In this phase the application will try to do mostly read-only
 accesses to avoid dirtying too many pages as this will cause the migration
@@ -1062,12 +1061,12 @@ the destination machine from the start, if we deal with one final housekeeping
 task.
 
 \paragraph{Destination} will notify the source that it has READ all of the
-dirty pages and that it no longer needs the destination to keep the
+dirty pages and that it no longer needs the source to keep the
 pre-transfer content of the object memory.
 
 \paragraph{Source} will wait to receive the above message at which point it
 safely \texttt{munmap}s the memory underlying the ``old'' target object. At
-this point the state on the source looks as if the said object had never existed
+this point the state on the source looks as if the target object had never existed
 there.
 
 
@@ -1075,42 +1074,39 @@ there.
 \label{sec:optim}
 Multiple optimizations opportunities and housekeeping tasks have been omitted
 from the earlier parts of this chapter. In this section we attend to these
-subtle but important left out pieces.
+subtle but important pieces.
 
-\TODO{relaxed no alloc/dealloc requirement during the migration, more thread safety requirements}
+\paragraph{Relaxing no allocation/deallocation rules during prefill:}
+From migration initiation until the end of the prefill phase, we are allowing
+the application to use the target object in a limited way, namely without
+allocating or deallocating memory on behalf of it. This requirement can be
+relaxed to allow full access to the object before committing the
+migration, by noting the new allocations/deallocations before committing the
+migration and communicating that information to the destination at that time.
 
-\paragraph{C++ programming style to account for the prefill phase}
+\paragraph{C++ programming style to account for the prefill phase:}
 \label{sec:conform}
 Writing programs that can both respect and leverage the prefill phases
-described previously is important to keep code readable. We can encode the
+described previously is important to keep code readable. The application
+programmer can encode the
 conditions and requirements of the migration phase using C++ language features.
-For example to represent the object after the prefill phase starts, we can
+For example to represent the object after migration initiation, one can
 stick to using only a \texttt{const} reference to the target object,
 forcing the user to use a discouraged \texttt{const\_cast} to be able to call
-into the type's non-\texttt{const} methods.
+into the type's non-\texttt{const} methods which will dirty the underlying pages.
 
 \paragraph{Allocation strategies:} There are multiple ways to improve the memory
 allocation performance. Since we need to allocate memory to objects in page
 granularity, it is important to reduce fragmentation and wasted space,
 otherwise the two will quickly pile up to decrease usable memory and increase
-communication overhead. One optimization towards preventing this is to allocate
-new memory from the page(s) that an object already owns instead of adding
-new pages to an object every time \texttt{allocate()} is called on behalf of it.
+communication overhead.
 
 Applications may want to provide their custom allocators on top of the Slope
-allocator which allocates big regions from the shared address space. Given the
-above note, using a general
-allocator inside Slope would not be meaningful since internally, Slope's
-allocator is optimizing towards a specific and object-local goal (namely
-reducing the number of pages that an object owns) compared to the usual
-global object-agnostic goals of generic allocators.
-
-However it might
-nevertheless be helpful to allow applications to pass in their own solutions
-to the former problem. For that matter, general allocators' approaches can
-be reused. For example we can pose the problem of ``fitting a new allocation
-into one of the part-filled pages of the current object'' to a user supplied
-allocator.
+allocator which allocates big regions from the shared address space. Given that
+reducing the number of pages underlying an object is desirable, using a general
+allocator inside Slope would not necessarily be useful. A general allocator
+will instead optimize for putting multiple objects together, regardless of which
+object owns which parts of the memory.
 
 \paragraph{Deallocation:} Reasoning about and implementing deallocation must
 be done with care since we have a local and a distributed level of memory
@@ -1133,13 +1129,15 @@ When a machine deallocates memory referenced by a migratable object, this
 information needs to be sent back to the lease holder of the memory range in
 which the deallocated memory falls. We do this off the critical path, such that
 each meachine accumulates deallocated memories and sends them in batches to
-the machines that they originally belonged ($i$th $\frac{1}{n}$ of the
+the machines to which they originally belonged ($i$th $\frac{1}{n}$ of the
 shared address space originally belongs to the $i$th machine), since the machine
 on which the
 deallocation happens does not have any information about
 the actual lease owner of the embodying memory range. The original owner
 of the memory range is then responsible to relay this information to the current
-lease holder.
+lease holder. If the machine on which the deallocation happens is already the
+lease holder, we can avoid the extra round trip to the original owner of the
+address and back to the lease holder.
 
 The timings of these requests do not pose a problem. That is
 because while deallocations can happen globally, allocations from a memory range

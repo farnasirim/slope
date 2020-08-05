@@ -13,7 +13,7 @@ Before dealing with failures, we need to specify what failures mean for the
     usually stateless and can easily be restarted) or a deal-breaker.
     In both cases, the notion of migrating runnable objects discussed in
     \autoref{subsec:runnable} can be a starting point for approaching failures.
-    For example migrating or rerunning objects can be though of as natural
+    For example migrating or rerunning objects can be thought of as natural
     points of synchronization or taking snapshots.
 
 
@@ -44,25 +44,26 @@ communication between the nodes.
 
 
 
-\paragraph{Handling updates to Slope and application code:} Another technical
-debt in the design of Slope lies in defining a procedure for updating Slope and
-the applications that run on top of it such that the successive versions of
-application binaries can coexist in the same cluster during the update period.
-At least the core
-functionality of Slope has to be backwards compatible with its previous versions.
-On The applications side, system designers need to come up with an internal versioning
-scheme to prevent objects from migrating back to the machines running older
-binaries.
 
-A much more complicated scenario
-is one in which we make updates not to the internal functionalities, but to the
-data members of the migratable objects. For example one might try to start by
-providing functions that can translate an object in the pre-update format to an
-object
-in the current format, but it is not clear how we can reference the members of the
-pre-update object while we only have code defining the current version of that type.
-We might be able to get around this by limiting how migratable object schemes can be
-updated similar to how this is done in Google's Protocol Buffers \cite{google:protobuf}.
+% \paragraph{Handling updates to Slope and application code:} Another technical
+% debt in the design of Slope lies in defining a procedure for updating Slope and
+% the applications that run on top of it such that the successive versions of
+% application binaries can coexist in the same cluster during the update period.
+% At least the core
+% functionality of Slope has to be backwards compatible with its previous versions.
+% On the applications side, system designers need to come up with an internal versioning
+% scheme to prevent objects from migrating back to the machines running older
+% binaries.
+% 
+% A much more complicated scenario
+% is one in which we make updates not to the internal functionalities, but to the
+% data members of the migratable objects. For example one might try to start by
+% providing functions that can translate an object in the pre-update format to an
+% object
+% in the current format, but it is not clear how we can reference the members of the
+% pre-update object while we only have code defining the current version of that type.
+% We might be able to get around this by limiting how migratable object schemes can be
+% updated similar to how this is done in Google's Protocol Buffers \cite{google:protobuf}.
 
 
 \paragraph{Partial migration:}
