@@ -51,7 +51,7 @@ class mig_ptr {
     return alloc::allocator_instance<T>().create_context(ptr);
   }
 
-  std::vector<alloc::memory_chunk> get_pages() {
+  std::vector<alloc::memory_chunk> get_pages() const {
     auto& outer_allocator = alloc::allocator_instance<T>();
     return outer_allocator.get_pages(ptr);
   }

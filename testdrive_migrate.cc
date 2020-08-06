@@ -15,20 +15,16 @@
 
 #include "control.h"
 
-template<typename T>
-using mig_vector = std::vector<T, slope::alloc::FixedPoolAllocator<T>>;
-
-template<typename T>
-using mig_alloc = slope::alloc::FixedPoolAllocator<T>;
 
 #include "json.hpp"
 
 using json = nlohmann::json;
 
-void testdrive_migrate(slope::control::RdmaControlPlane::ptr control_plane) {
+void testdrive_migrate(typename
+    slope::control::RdmaControlPlane<td_mig_type>::ptr control_plane) {
   if(control_plane->self_name() == control_plane->cluster_nodes().front()) {
     debout("start testdrive_migrate");
-    slope::mig_ptr<mig_vector<int>> ptr;
+    slope::mig_ptr<td_mig_type> ptr;
     debout("finished creating a vector of int of size 0");
     {
       debout("acquiring a context for adding elements to the vector");
@@ -56,14 +52,15 @@ void testdrive_migrate(slope::control::RdmaControlPlane::ptr control_plane) {
     deb(control_plane->cluster_nodes());
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     // control_plane->simple_send();
-    control_plane->do_migrate(
-        control_plane->cluster_nodes()[1], ptr.get_pages()
-        );
+    auto operation =
+      control_plane->init_migration(control_plane->cluster_nodes()[1], ptr);
+    // use ptr without alloc/dealloc
+    operation->commit();
   } else {
     // control_plane->simple_recv();
     while(true) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      auto migrated_ptr = control_plane->poll_migrate<mig_vector<int>>();
+      auto migrated_ptr = control_plane->poll_migrate();
       if(migrated_ptr.get() != nullptr) {
         deb(*migrated_ptr.get());
         for(auto it: migrated_ptr.get_pages()) {

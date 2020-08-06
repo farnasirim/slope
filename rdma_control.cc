@@ -13,8 +13,6 @@
 #include "discovery.h"
 #include "cluster_time.h"
 
-#include "stat.h"
-
 #include "json.hpp"
 
 #include "debug.h"
@@ -24,286 +22,13 @@ namespace control {
 
 using json = nlohmann::json;
 
-const std::string RdmaControlPlane::self_name() {
-  return self_name_;
-}
-const std::vector<std::string> RdmaControlPlane::cluster_nodes() {
-  return cluster_nodes_;
+void TwoStepMigrationOperation::commit() {
+  m_.unlock();
+  t_.join();
 }
 
-RdmaControlPlane::RdmaControlPlane(const std::string& self_name,
-      const std::vector<std::string>& cluster_nodes,
-      slope::keyvalue::KeyValueService::ptr keyvalue_service, int calibrate_time):
-  self_name_(self_name),
-  cluster_nodes_(cluster_nodes),
-  keyvalue_service_(std::move(keyvalue_service)),
-  dataplane_(nullptr),
-  ib_context_(ib_device_name_.c_str()),
-  dev_attrs_result_(ibv_query_device(ib_context_.get(), &dev_attrs_)),
-  query_port_result_(ibv_query_port(ib_context_.get(),
-        operating_port_num_, &operating_port_attr_)),
-  global_pd_(ib_context_.get()),
-  do_migrate_mr_(global_pd_.get(), &do_migrate_req_, sizeof(do_migrate_req_),
-      do_migrate_mr_flags_),
-  do_migrate_cq_(ib_context_.get(), dev_attrs_.max_cqe, static_cast<void *>(NULL),
-                 static_cast<struct ibv_comp_channel *>(NULL), 0),
-  time_calib_cq_(ib_context_.get(), dev_attrs_.max_cqe, static_cast<void *>(NULL),
-                 static_cast<struct ibv_comp_channel *>(NULL), 0)
-{
-    std::sort(cluster_nodes_.begin(), cluster_nodes_.end());
-    self_index_ = static_cast<size_t>(
-          std::find(cluster_nodes_.begin(), cluster_nodes_.end(), self_name_) -
-          cluster_nodes_.begin()
-          );
-
-    if(is_leader()) {
-      init_cluster();
-    }
-
-    std::map<std::string, std::vector<QpInfo>> all_qps;
-    std::vector<std::string> qp_set_keys = {
-      do_migrate_qps_key_,
-      shared_address_qps_key_,
-    };
-    if(calibrate_time) {
-      qp_set_keys.push_back(time_calib_qps_key_);
-    }
-
-    for(auto set_name: qp_set_keys) {
-      fullmesh_qps_.try_emplace(set_name, get_cq(set_name));
-      auto qps = fullmesh_qps_[set_name].prepare(self_name_,
-          cluster_nodes_, global_pd_, operating_port_attr_, dev_attrs_);
-      all_qps[set_name] = qps;
-    }
-
-    NodeInfo my_info(self_name_, all_qps);
-    // deb(json(my_info).dump(4));
-    my_info.node_id = self_name_;
-
-    keyvalue_service_->set(self_name_, json(my_info).dump());
-    for(auto peer: cluster_nodes_) {
-      std::string peer_info;
-      auto peer_result = keyvalue_service_->wait_for(peer, peer_info);
-      assert(peer_result);
-      cluster_info_[peer] = json::parse(peer_info).get<NodeInfo>();
-    }
-
-    for(auto set_name: qp_set_keys) {
-      auto remote_qps = find_self_qps(cluster_info_, set_name);
-      fullmesh_qps_[set_name].finalize(remote_qps);
-    }
-
-    for(auto& qp_ptr: fullmesh_qps_[do_migrate_qps_key_].qps_) {
-      auto qp = qp_ptr.second.get()->get();
-      prepost_do_migrate_qp(qp);
-    }
-
-    if(calibrate_time && !is_leader()) {
-      post_calibrate_time(get_leader());
-    }
-
-    keyvalue_service_->set(self_name_ + "_DONE", json(my_info).dump());
-    for(auto peer: cluster_nodes_) {
-      std::string _;
-      assert(keyvalue_service_->wait_for(peer_done_key(peer), _));
-    }
-
-    if(calibrate_time) {
-      do_calibrate_time();
-    }
-}
-
-void RdmaControlPlane::init_cluster() {
-  assert(keyvalue_service_->set(migrate_in_progress_cas_name_, "0"));
-}
-
-bool RdmaControlPlane::do_migrate(const std::string& dest,
-      const std::vector<slope::alloc::memory_chunk>& chunks) {
-
-  if(!keyvalue_service_->compare_and_swap(
-      migrate_in_progress_cas_name_,
-      "0",
-      "1")) {
-    return false;
-  }
-  std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
-
-  debout("start ping pong");
-  start_migrate_ping_pong(dest, chunks);
-  // Later TODO: prefill
-  // Laterer TODO: make sure prefill is pluggable
-
-  auto pages = slope::alloc::chunks_to_pages(chunks);
-
-  for(auto page: pages) {
-  }
-
-  for(auto& chunk: chunks) {
-    deb(chunk);
-    // auto mprotect_result = mprotect(
-    //     reinterpret_cast<void*>(chunk.first),
-    //     chunk.second, PROT_READ);
-    // assert_p(mprotect_result == 0, "mprotect");
-  }
-
-  transfer_ownership_ping_pong(dest, chunks);
-  // TODO: at this point we can also call back to the client to let them know
-  // that the migration is done, before waiting for the lengthy CAS.
-
-  assert(keyvalue_service_->compare_and_swap(
-      migrate_in_progress_cas_name_,
-      "1",
-      "0"));
-  return true;
-}
-
-std::string RdmaControlPlane::peer_done_key(const std::string& peer_name) {
-  return peer_name + "_DONE";
-}
-
-void RdmaControlPlane::attach_dataplane(slope::data::DataPlane::ptr dataplane) {
-  dataplane_ = std::move(dataplane);
-}
-
-void RdmaControlPlane::start_migrate_ping_pong(const std::string& dest,
-    const std::vector<slope::alloc::memory_chunk>& chunks) {
-
-  auto migrate_dest_qp = fullmesh_qps_[do_migrate_qps_key_].qps_[dest].get()->get();
-  auto dest_qp = fullmesh_qps_[shared_address_qps_key_].qps_[dest].get()->get();
-  auto& cq = fullmesh_qps_[do_migrate_qps_key_].cq_;
-
-  {
-    do_migrate_req_.number_of_chunks = chunks.size();
-
-    struct ibv_sge sge = {};
-    sge.lkey = do_migrate_mr_->lkey;
-    sge.addr = reinterpret_cast<uintptr_t>(&do_migrate_req_);
-    sge.length = sizeof (do_migrate_req_);
-
-    struct ibv_send_wr *bad_wr;
-    struct ibv_send_wr this_wr = {};
-    this_wr.wr_id = do_migrate_wrid_;
-    this_wr.num_sge = 1;
-    this_wr.sg_list = &sge;
-    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
-    this_wr.send_flags = IBV_SEND_SIGNALED;
-    this_wr.imm_data = htonl(self_index_);
-
-    int ret_post_send = ibv_post_send(migrate_dest_qp, &this_wr, &bad_wr);
-    assert_p(ret_post_send == 0, "ibv_post_send");
-    struct ibv_wc completions[1];
-    while(true) {
-      int ret = ibv_poll_cq(cq.get(), 1, completions);
-      if(ret > 0) {
-        assert_p(completions[0].status == 0, "ibv_poll_cq");
-        break;
-      }
-    }
-  }
-
-  // {
-  //   struct ibv_wc chunks_completions[1];
-  //   while(true) {
-  //     int chunks_ret_poll_cq = ibv_poll_cq(
-  //         do_migrate_cq_, 1, chunks_completions);
-  //     assert_p(chunks_ret_poll_cq >= 0 && chunks_ret_poll_cq <= 1,
-  //         "ibv_poll_cq");
-  //     if(chunks_ret_poll_cq > 0) {
-  //       assert_p(chunks_completions[0].status == 0, "ibv_poll_cq");
-  //       break;
-  //     }
-  //   }
-  // }
-
-
-
-  std::vector<DoMigrateChunk> chunks_info(chunks.size());
-  auto chunks_info_sz = chunks.size() * sizeof(DoMigrateChunk);
-  for(size_t i = 0; i < chunks.size(); i++) {
-    chunks_info[i].addr = chunks[i].first;
-    chunks_info[i].sz = chunks[i].second;
-  }
-  {
-    IbvRegMr mr(global_pd_.get(),
-        chunks_info.data(),
-        chunks_info_sz,
-        do_migrate_mr_flags_);
-    deb(chunks_info_sz);
-    deb(chunks_info.size());
-
-    struct ibv_sge sge = {};
-    sge.lkey = mr.get()->lkey;
-    sge.addr = reinterpret_cast<uintptr_t>(chunks_info.data());
-    sge.length = chunks_info_sz;
-
-    struct ibv_send_wr *bad_wr;
-    struct ibv_send_wr this_wr = {};
-    this_wr.wr_id = chunks_info_wrid_;
-    this_wr.num_sge = 1;
-    this_wr.sg_list = &sge;
-    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
-    this_wr.send_flags = IBV_SEND_SIGNALED;
-    this_wr.imm_data = htonl(12345);
-
-    int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
-    assert_p(ret_post_send == 0, "ibv_post_send");
-    struct ibv_wc completions[1];
-
-    while(true) {
-      int ret = ibv_poll_cq(cq.get(), 1, completions);
-      if(ret > 0) {
-        assert_p(completions[0].status == 0, "ibv_poll_cq");
-        assert(completions[0].wr_id == chunks_info_wrid_);
-        break;
-      }
-    }
-  }
-
-
-  {
-    struct ibv_recv_wr *in_bad_wr;
-    struct ibv_recv_wr in_this_wr = {};
-    in_this_wr.wr_id = received_chunks_wrid_;
-    in_this_wr.num_sge = 0;
-    in_this_wr.sg_list = NULL;
-
-    int ret = ibv_post_recv(dest_qp, &in_this_wr, &in_bad_wr);
-    assert_p(ret == 0, "ibv_post_recv");
-  }
-
-  {
-    struct ibv_wc completions[1];
-    while(true) {
-      int chunks_ret_poll_cq = ibv_poll_cq(
-          do_migrate_cq_, 1, completions);
-      assert_p(chunks_ret_poll_cq >= 0 && chunks_ret_poll_cq <= 1,
-          "ibv_poll_cq");
-      if(chunks_ret_poll_cq > 0) {
-        assert_p(completions[0].status == 0, "ibv_poll_cq");
-        deb(completions[0].wr_id);
-        deb(received_chunks_wrid_);
-        assert(completions[0].wr_id == received_chunks_wrid_);
-        break;
-      }
-    }
-  }
-
-  // {
-  //   std::stringstream deb_ss;
-  //   deb_ss << std::showbase << std::internal << std::setfill('0')
-  //     << "addr: " << std::hex << std::setw(16) << static_cast<void*>(chunks_info.data());
-  //   infoout(deb_ss.str());
-  // }
-  debout("done ping pong");
-}
-
-void RdmaControlPlane::transfer_ownership_ping_pong(const std::string& dest,
-    const std::vector<slope::alloc::memory_chunk>& chunks) {
-}
-
-bool RdmaControlPlane::init_kvservice() {
-  return keyvalue_service_->set(migrate_in_progress_cas_name_,
-      "0");
+TwoStepMigrationOperation::TwoStepMigrationOperation(std::mutex& m,
+    std::thread t): m_(m), t_(std::move(t)) {
 }
 
 NodeInfo::NodeInfo(std::string node_id_v,
@@ -345,32 +70,6 @@ void from_json(const json& j, QpInfo& inf) noexcept {
   j.at("remote_end_node_id").get_to(inf.remote_end_node_id);
 }
 
-QpInfo RdmaControlPlane::find_self_qp(const std::vector<QpInfo>& infos) {
-  for(const auto& it: infos) {
-    if(it.remote_end_node_id == self_name_) {
-      return it;
-    }
-  }
-  assert(false);
-}
-
-std::vector<QpInfo> RdmaControlPlane::find_self_qps(const std::map<std::string, NodeInfo>& node_infos,
-    const std::string& qp_set_key) {
-  std::vector<QpInfo> ret;
-  for(const auto& it: node_infos) {
-    if(it.first != self_name_) {
-      ret.push_back(find_self_qp(it.second.qp_sets_.find(qp_set_key)->second));
-    }
-  }
-  return ret;
-}
-
-IbvCreateCq& RdmaControlPlane::get_cq(const std::string& str) {
-  if(str == time_calib_qps_key_) {
-    return time_calib_cq_;
-  }
-  return do_migrate_cq_;
-}
 
 namespace impl {
 static std::unique_ptr<IbvCreateCq> slope_tmp_(nullptr);
@@ -382,6 +81,16 @@ FullMeshQpSet::FullMeshQpSet(): cq_(*impl::slope_tmp_) {
 FullMeshQpSet::FullMeshQpSet(const IbvCreateCq& cq): cq_(cq) {
 
 }
+
+void FullMeshQpSet::finalize(const std::vector<QpInfo>& remote_qps) {
+  for(auto& remote_qp: remote_qps) {
+    auto peer_name = remote_qp.host_node_id;
+    auto qp = std::move(qps_[peer_name]);
+    to_rts(*(qp.get()), remote_qp);
+    qps_[peer_name] = std::move(qp);
+  }
+}
+
 
 std::vector<QpInfo> FullMeshQpSet::prepare(const std::string& self_name,
     const std::vector<std::string>& nodes, const IbvAllocPd& pd,
@@ -467,158 +176,7 @@ void to_rts(IbvCreateQp& qp, QpInfo remote_qp) {
   }
 }
 
-void RdmaControlPlane::prepost_do_migrate_qp(ibv_qp *qp) {
-  do_migrate_sge_.lkey = do_migrate_mr_->lkey;
-  do_migrate_sge_.addr = reinterpret_cast<uintptr_t>(do_migrate_mr_->addr);
-  do_migrate_sge_.length = sizeof(do_migrate_req_);
 
-  do_migrate_wr_ = ibv_recv_wr{};
-  do_migrate_bad_wr_ = nullptr;
-  do_migrate_wr_.wr_id = do_migrate_wrid_;
-  do_migrate_wr_.num_sge = 1;
-  do_migrate_wr_.sg_list = &do_migrate_sge_;
-  int ret_post_recv = ibv_post_recv(
-      qp, &do_migrate_wr_, &do_migrate_bad_wr_);
-  assert_p(ret_post_recv == 0, "ibv_post_recv");
-}
-
-void FullMeshQpSet::finalize(const std::vector<QpInfo>& remote_qps) {
-  for(auto& remote_qp: remote_qps) {
-    auto peer_name = remote_qp.host_node_id;
-    auto qp = std::move(qps_[peer_name]);
-    to_rts(*(qp.get()), remote_qp);
-    qps_[peer_name] = std::move(qp);
-  }
-}
-
-std::string RdmaControlPlane::get_leader() {
-  return *min_element(cluster_nodes_.begin(), cluster_nodes_.end());
-}
-
-bool RdmaControlPlane::is_leader() {
-  return self_name_ == get_leader();
-}
-
-bool RdmaControlPlane::is_leader(const std::string& name) {
-  return name == get_leader();
-}
-
-void RdmaControlPlane::post_calibrate_time(const std::string& remote_node) {
-  ibv_recv_wr calibrate_time_wr_ = {};
-  ibv_recv_wr *calibrate_time_bad_wr_ = nullptr;
-  calibrate_time_wr_.wr_id = calibrate_time_wrid_;
-  calibrate_time_wr_.num_sge = 0;
-  calibrate_time_wr_.sg_list = nullptr;
-  int ret_post_recv = ibv_post_recv(
-      fullmesh_qps_[time_calib_qps_key_].qps_[remote_node].get()->get(),
-      &calibrate_time_wr_, &calibrate_time_bad_wr_);
-  assert_p(ret_post_recv == 0, "ibv_post_recv");
-}
-
-void RdmaControlPlane::do_calibrate_time_leader() {
-  slope::time::calibrated_local_start_time =
-    std::chrono::high_resolution_clock::now();
-  // deb(time_point_to_string(slope::time::calibrated_local_start_time));
-  // deb(time_point_to_string(slope::time::calibrated_local_start_time));
-  for(auto dest: cluster_nodes_) {
-    if(is_leader(dest)) {
-      continue;
-    }
-    int current_node_rtt_micros = 0;
-    for(int i = 0; i < time_calib_rounds_; i++) {
-      auto dest_qp = fullmesh_qps_[time_calib_qps_key_].qps_[dest].get()->get();
-      auto& cq = fullmesh_qps_[time_calib_qps_key_].cq_;
-
-      struct ibv_send_wr *bad_wr;
-      struct ibv_send_wr this_wr = {};
-      this_wr.wr_id = calibrate_time_wrid_;
-      this_wr.num_sge = 0;
-      this_wr.sg_list = NULL;
-      this_wr.opcode = IBV_WR_SEND_WITH_IMM;
-      this_wr.send_flags = IBV_SEND_SIGNALED;
-      auto current_node_offset_micros =
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() -
-            slope::time::calibrated_local_start_time
-            ).count();
-      this_wr.imm_data = htonl(current_node_rtt_micros/2 +
-          current_node_offset_micros);
-
-      post_calibrate_time(dest);
-
-      auto then = std::chrono::high_resolution_clock::now();
-      int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
-      assert_p(ret_post_send == 0, "ibv_post_send");
-      while(true) {
-        struct ibv_wc completions[1];
-        int ret = ibv_poll_cq(cq.get(), 1, completions);
-        if(ret > 0) {
-          assert_p(completions[0].status == 0, "ibv_poll_cq");
-          break;
-        }
-      }
-
-      while(true) {
-        struct ibv_wc completions[1];
-        int ret = ibv_poll_cq(cq.get(), 1, completions);
-        if(ret > 0) {
-          assert_p(completions[0].status == 0, "ibv_poll_cq");
-          break;
-        }
-      }
-      current_node_rtt_micros = std::chrono::duration_cast<
-        std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - then).count();
-    }
-  }
-}
-
-void RdmaControlPlane::do_calibrate_time_follower() {
-  auto leader_qp = fullmesh_qps_[time_calib_qps_key_].qps_[get_leader()].get()->get();
-  auto& cq = fullmesh_qps_[time_calib_qps_key_].cq_;
-  std::vector<std::chrono::high_resolution_clock::time_point> time_points;
-  for(int i = 0; i < time_calib_rounds_; i++) {
-    post_calibrate_time(get_leader());
-    while(true) {
-      struct ibv_wc completions[1];
-      int ret = ibv_poll_cq(cq.get(), 1, completions);
-      if(ret > 0) {
-        time_points.push_back(
-          std::chrono::high_resolution_clock::now() -
-            std::chrono::microseconds(ntohl(completions[0].imm_data))
-            );
-        assert_p(completions[0].status == 0, "ibv_poll_cq");
-        break;
-      }
-    }
-
-    struct ibv_send_wr *bad_wr;
-    struct ibv_send_wr this_wr = {};
-    this_wr.wr_id = calibrate_time_wrid_;
-    this_wr.num_sge = 0;
-    this_wr.sg_list = NULL;
-    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
-    this_wr.send_flags = IBV_SEND_SIGNALED;
-    this_wr.imm_data = htonl(self_index_);
-    int ret_post_send = ibv_post_send(leader_qp, &this_wr, &bad_wr);
-    assert_p(ret_post_send == 0, "ibv_post_send");
-
-    while(true) {
-      struct ibv_wc completions[1];
-      int ret = ibv_poll_cq(cq.get(), 1, completions);
-      if(ret > 0) {
-        assert_p(completions[0].status == 0, "ibv_poll_cq");
-        break;
-      }
-    }
-  }
-  int selected_ind = time_points.size()/2;
-  std::nth_element(time_points.begin(),
-      time_points.begin() + selected_ind,
-      time_points.end());
-  slope::time::calibrated_local_start_time =
-    *(time_points.begin() + selected_ind);
-}
 
 std::string time_point_to_string(
     const std::chrono::high_resolution_clock::time_point& tp) {
@@ -629,16 +187,6 @@ std::string time_point_to_string(
   return ss.str();
 }
 
-void RdmaControlPlane::do_calibrate_time() {
-  if(is_leader()) {
-    do_calibrate_time_leader();
-  } else {
-    do_calibrate_time_follower();
-  }
-
-  slope::stat::add_value(slope::stat::key::operation,
-      slope::stat::value::done_time_calibrate);
-}
 
 
 }  // namespace control

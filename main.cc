@@ -22,6 +22,7 @@
 #include "allocator.h"
 #include "discovery.h"
 #include "stat.h"
+#include "testdrive_migrate.h"
 
 #include "rdma_control.h"
 #include "memcached_kv.h"
@@ -85,10 +86,10 @@ int main(int argc, char **argv) {
         std::move(kv), "SLOPE_");
 
     deb(peers);
-    std::unique_ptr<slope::control::RdmaControlPlane> control_plane = nullptr;
+    std::unique_ptr<slope::control::RdmaControlPlane<td_mig_type>> control_plane = nullptr;
 
     {
-      std::make_unique<slope::control::RdmaControlPlane>(self_id, peers,
+      std::make_unique<slope::control::RdmaControlPlane<td_mig_type>>(self_id, peers,
           std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
               std::make_unique<slope::keyvalue::Memcached>(argv[2]), "SLOPE_TIMECALIB_")
           , 1);
@@ -96,7 +97,7 @@ int main(int argc, char **argv) {
       char hostname[4096];
       if(!gethostname(hostname, sizeof(hostname)) &&
           std::string(hostname).find("mel") == 0) {
-        control_plane = std::make_unique<slope::control::RdmaControlPlane> (
+        control_plane = std::make_unique<slope::control::RdmaControlPlane<td_mig_type>> (
             self_id, peers, std::move(slope_kv));
       }
     }

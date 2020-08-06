@@ -5,16 +5,27 @@
 #include <vector>
 
 #include "allocator.h"
+#include "mig.h"
 
 namespace slope {
 namespace control {
 
+class MigrationOperation {
+ public:
+  using ptr = std::unique_ptr<MigrationOperation>;
+  virtual void commit() = 0;
+};
+
+template<typename T>
 class ControlPlane {
  public:
   using ptr = std::unique_ptr<ControlPlane>;
 
   virtual bool do_migrate(const std::string& dest,
       const std::vector<slope::alloc::memory_chunk>&) = 0;
+
+  virtual MigrationOperation::ptr init_migration(const std::string& dest,
+      const mig_ptr<T>& ptr) = 0;
 
   virtual const std::string self_name() = 0;
   virtual const std::vector<std::string> cluster_nodes() = 0;

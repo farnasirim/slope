@@ -10,6 +10,7 @@
 
 #ifdef SLOPE_DEBUG
 #  define deb(x) std::cout << #x << ": " << (x) << std::endl
+#  define deb2(x, y) std::cout << #x << ": " << (x) << ", " << #y << ": " << (y) << std::endl
 #  define debout(x) std::cout << x << std::endl
 #  define debline() std::cout << std::endl
 
