@@ -88,7 +88,7 @@ extern std::vector<std::shared_ptr<OwnershipFrame>> global_ownership_stack;
 std::size_t align_to_page(std::size_t n);
 
 std::vector<memory_chunk> chunks_to_pages(const std::vector<memory_chunk>&);
-
+// std::vector<memory_chunk>&);
 
 // Has to be stateless. Must not allow mem to be passed in during object
 // creation.
@@ -157,7 +157,8 @@ struct FixedPoolAllocator {
     }
 
     for(const auto& chunk: chunks_to_pages(chunks)) {
-      if(mprotect(reinterpret_cast<void*>(chunk.first), chunk.second, PROT_NONE)) {
+      if (mprotect(reinterpret_cast<void*>(chunk.first), chunk.second,
+                   PROT_READ | PROT_WRITE)) {
         perror("mprotect");
         assert(false);
       }

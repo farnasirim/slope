@@ -50,7 +50,16 @@ std::vector<memory_chunk> chunks_to_pages(const std::vector<memory_chunk>& chunk
     pages[start_addr & ~(slope::alloc::page_size - 1)] = std::max(prev,
         slope::alloc::align_to_page(sz));
   }
-  return std::vector<memory_chunk> (pages.begin(), pages.end());
+  std::vector<memory_chunk> ret;
+  for (auto it : pages) {
+    auto current = it.first;
+    auto end_byte = it.first + it.second;
+    while (current < end_byte) {
+      ret.emplace_back(current, page_size);
+      current += page_size;
+    }
+  }
+  return ret;
 }
 
 // Don't do ANYTHING else with uintptr_t as it would be UB
