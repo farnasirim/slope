@@ -21,9 +21,6 @@ class ControlPlane {
  public:
   using ptr = std::unique_ptr<ControlPlane>;
 
-  virtual bool do_migrate(const std::string& dest,
-      const std::vector<slope::alloc::memory_chunk>&) = 0;
-
   virtual MigrationOperation::ptr init_migration(const std::string& dest,
       const mig_ptr<T>& ptr) = 0;
 

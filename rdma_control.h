@@ -29,6 +29,14 @@ namespace control {
 
 using json = nlohmann::json;
 
+enum class wrid : uint64_t {
+  calibrate_time = 0xd018,
+  chunks_info,
+  received_chunks,
+  destination_rkeys,
+  prefill_page,
+};
+
 struct QpInfo {
   QpInfo() = default;
   QpInfo(short unsigned int host_port_lid, unsigned int host_qp_num,
@@ -63,10 +71,10 @@ struct DoMigrateChunk {
 class TwoStepMigrationOperation : public MigrationOperation {
  public:
   virtual void commit();
-  TwoStepMigrationOperation(std::mutex &m, std::thread t);
+  TwoStepMigrationOperation(std::shared_ptr<std::mutex> m, std::thread t);
 
  private:
-  std::mutex &m_;
+  std::shared_ptr<std::mutex> m_;
   std::thread t_;
 };
 
@@ -105,6 +113,155 @@ class RdmaControlPlane : public ControlPlane<T> {
 
   using ptr = std::unique_ptr<RdmaControlPlane>;
 
+  uint32_t get_nudge(ibv_qp *qp, ibv_cq *cq) {
+    struct ibv_recv_wr *bad_wr;
+    struct ibv_recv_wr this_wr = {};
+    this_wr.wr_id = 12212;
+    this_wr.num_sge = 0;
+    this_wr.sg_list = nullptr;
+
+    int ret_post_recv = ibv_post_recv(qp, &this_wr, &bad_wr);
+    assert_p(ret_post_recv == 0, "ibv_post_recv");
+
+    struct ibv_wc wc[1];
+    while (true) {
+      int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
+      assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
+      if (ret_poll_cq > 0) {
+        assert_p(wc[0].status == 0, "ibv_poll_cq");
+        assert(wc[0].wr_id == 12212);
+        debout("got nudge");
+        deb(ntohl(wc[0].imm_data));
+        return ntohl(wc[0].imm_data);
+      }
+    }
+    return 0;
+  }
+
+  void do_nudge(ibv_qp *qp, uint32_t imm, ibv_cq *cq) {
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
+    this_wr.wr_id = 12212;
+    this_wr.num_sge = 0;
+    this_wr.sg_list = nullptr;
+    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.imm_data = htonl(imm);
+
+    int ret_post_send = ibv_post_send(qp, &this_wr, &bad_wr);
+    assert_p(ret_post_send == 0, "ibv_post_send");
+    struct ibv_wc completions[1];
+
+    while (true) {
+      int ret = ibv_poll_cq(cq, 1, completions);
+      if (ret > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        assert(completions[0].wr_id == 12212);
+        break;
+      }
+    }
+    // send_wr.wr.rdma.remote_addr = reinterpret_cast<uintptr_t>(mr->addr);
+    // send_wr.wr.rdma.rkey = rkey;
+  }
+
+  uint32_t get_nudge_write(ibv_qp *qp, ibv_cq *cq) {
+    struct ibv_recv_wr *bad_wr;
+    struct ibv_recv_wr this_wr = {};
+    this_wr.wr_id = 12212;
+    this_wr.num_sge = 0;
+    this_wr.sg_list = nullptr;
+
+    int ret_post_recv = ibv_post_recv(qp, &this_wr, &bad_wr);
+    assert_p(ret_post_recv == 0, "ibv_post_recv");
+
+    struct ibv_wc wc[1];
+    while (true) {
+      int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
+      assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
+      if (ret_poll_cq > 0) {
+        assert_p(wc[0].status == 0, "ibv_poll_cq");
+        assert(wc[0].wr_id == 12212);
+        debout("got nudge");
+        deb(ntohl(wc[0].imm_data));
+        return ntohl(wc[0].imm_data);
+      }
+    }
+    return 0;
+  }
+
+  void do_nudge_write(ibv_qp *qp, ibv_cq *cq, uintptr_t remote_addr,
+                      uint32_t rkey, void *send_buf, uint32_t send_buf_len,
+                      uint32_t send_buf_lkey) {
+    struct ibv_sge sge = {};
+    sge.addr = reinterpret_cast<uintptr_t>(send_buf);
+    sge.length = send_buf_len;
+    sge.lkey = send_buf_lkey;
+
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
+
+    this_wr.wr_id = 12212;
+    this_wr.num_sge = 1;
+    this_wr.sg_list = &sge;
+    this_wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.imm_data = htonl(123123);
+    this_wr.wr.rdma.remote_addr = remote_addr;
+    this_wr.wr.rdma.rkey = rkey;
+
+    int ret_post_send = ibv_post_send(qp, &this_wr, &bad_wr);
+    assert_p(ret_post_send == 0, "ibv_post_send");
+    struct ibv_wc completions[1];
+
+    while (true) {
+      int ret = ibv_poll_cq(cq, 1, completions);
+      if (ret > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        assert(completions[0].wr_id == 12212);
+        break;
+      }
+    }
+  }
+
+  void write_page(ibv_mr *mr, ibv_qp *qp, uint32_t rkey, uint64_t wrid,
+                  ibv_cq *cq) {
+    int ret = 0;
+    struct ibv_send_wr *bad_send_wr;
+
+    // struct ibv_sge list;
+    // list.addr = reinterpret_cast<uintptr_t>(mr->addr);
+    // list.length = static_cast<uint32_t>(mr->length);
+    // list.lkey = mr->lkey;
+
+    struct ibv_send_wr send_wr;
+    send_wr.wr_id = wrid;
+    send_wr.sg_list = NULL;
+    send_wr.num_sge = 0;
+    send_wr.opcode = IBV_WR_SEND_WITH_IMM;
+    send_wr.send_flags = IBV_SEND_SIGNALED;
+    send_wr.imm_data = htonl(12346);
+    // send_wr.wr.rdma.remote_addr = reinterpret_cast<uintptr_t>(mr->addr);
+    // send_wr.wr.rdma.rkey = rkey;
+
+    deb(mr->addr);
+    deb(rkey);
+
+    auto ret_send = ibv_post_send(qp, &send_wr, &bad_send_wr);
+    std::cout << "send done" << std::endl;
+    assert_p(ret_send == 0, "ibv_post_send");
+    std::cout << "after assert" << std::endl;
+
+    struct ibv_wc completions[1];
+    while (true) {
+      auto ret_poll = ibv_poll_cq(cq, 1, completions);
+      if (ret_poll > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        assert(completions[0].wr_id == wrid);
+        break;
+      }
+    }
+  }
+
   virtual MigrationOperation::ptr init_migration(
       const std::string &dest, const mig_ptr<T> &target_object) {
     if (!keyvalue_service_->compare_and_swap(migrate_in_progress_cas_name_, "0",
@@ -113,74 +270,52 @@ class RdmaControlPlane : public ControlPlane<T> {
     }
     auto chunks = target_object.get_pages();
 
-    std::mutex m;
-    m.lock();
-    std::thread t([&, chunks] {
-      std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
-      start_migrate_ping_pong(dest, chunks);
+    std::shared_ptr<std::mutex> m = std::make_shared<std::mutex>();
+    m->lock();
+    return std::make_unique<TwoStepMigrationOperation>(
+        m, std::thread([this, dest, chunks, m] {
+          std::lock_guard<std::mutex> polling_guard(
+              control_plane_polling_lock_);
+          auto remote_rkeys = start_migrate_ping_pong(dest, chunks);
+          auto pages = slope::alloc::chunks_to_pages(chunks);
+          assert(pages.size() == remote_rkeys.size());
+          auto dest_qp =
+              fullmesh_qps_[shared_address_qps_key_].qps_[dest].get()->get();
+          auto &cq = fullmesh_qps_[do_migrate_qps_key_].cq_;
+          m->lock();
 
-      m.lock();
-      auto pages = slope::alloc::chunks_to_pages(chunks);
+          std::vector<IbvRegMr> source_mrs;
 
-      for (auto page : pages) {
-        if (mprotect(reinterpret_cast<void *>(page.first), page.second,
-                     PROT_READ)) {
-          perror("mprotect");
-          assert(false);
-        }
-      }
+          for (size_t i = 0; i < pages.size(); i++) {
+            auto rkey = remote_rkeys[i];
+            auto page = pages[i];
+            if (mprotect(reinterpret_cast<void *>(page.first), page.second,
+                         PROT_READ)) {
+              perror("mprotect");
+              assert(false);
+            }
+            source_mrs.emplace_back(global_pd_,
+                                    reinterpret_cast<void *>(page.first),
+                                    page.second, sender_prefill_mr_flags_);
+            std::cout << "call write page" << std::endl;
+            // write_page(source_mrs.back(), dest_qp, rkey,
+            //            static_cast<uint64_t>(wrid::prefill_page), cq);
+          }
 
-      // for(auto& chunk: chunks) {
-      //   deb(chunk);
-      //   // auto mprotect_result = mprotect(
-      //   //     reinterpret_cast<void*>(chunk.first),
-      //   //     chunk.second, PROT_READ);
-      //   // assert_p(mprotect_result == 0, "mprotect");
-      // }
+          // for(auto& chunk: chunks) {
+          //   deb(chunk);
+          //   // auto mprotect_result = mprotect(
+          //   //     reinterpret_cast<void*>(chunk.first),
+          //   //     chunk.second, PROT_READ);
+          //   // assert_p(mprotect_result == 0, "mprotect");
+          // }
 
-      transfer_ownership_ping_pong(dest, chunks);
-      m.unlock();
+          // transfer_ownership_ping_pong(dest, chunks);
+          m->unlock();
 
-      assert(keyvalue_service_->compare_and_swap(migrate_in_progress_cas_name_,
-                                                 "1", "0"));
-    });
-    auto ret = std::make_unique<TwoStepMigrationOperation>(m, std::move(t));
-    return std::move(ret);
-  }
-
-  bool do_migrate(const std::string &dest,
-                  const std::vector<slope::alloc::memory_chunk> &chunks) {
-    if (!keyvalue_service_->compare_and_swap(migrate_in_progress_cas_name_, "0",
-                                             "1")) {
-      return false;
-    }
-    std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
-
-    debout("start ping pong");
-    start_migrate_ping_pong(dest, chunks);
-    // Later TODO: prefill
-    // Laterer TODO: make sure prefill is pluggable
-
-    auto pages = slope::alloc::chunks_to_pages(chunks);
-
-    for (auto page : pages) {
-    }
-
-    for (auto &chunk : chunks) {
-      deb(chunk);
-      // auto mprotect_result = mprotect(
-      //     reinterpret_cast<void*>(chunk.first),
-      //     chunk.second, PROT_READ);
-      // assert_p(mprotect_result == 0, "mprotect");
-    }
-
-    transfer_ownership_ping_pong(dest, chunks);
-    // TODO: at this point we can also call back to the client to let them know
-    // that the migration is done, before waiting for the lengthy CAS.
-
-    assert(keyvalue_service_->compare_and_swap(migrate_in_progress_cas_name_,
-                                               "1", "0"));
-    return true;
+          assert(keyvalue_service_->compare_and_swap(
+              migrate_in_progress_cas_name_, "1", "0"));
+        }));
   }
 
   // void calibrate_time();
@@ -411,6 +546,80 @@ class RdmaControlPlane : public ControlPlane<T> {
     return do_migrate_cq_;
   }
 
+  template <typename VT>
+  std::vector<VT> recv_vector(size_t num, uint64_t wrid, ibv_qp *peer_qp,
+                              ibv_cq *cq) {
+    std::vector<VT> ret(num);
+    auto data = ret.data();
+    auto data_sz = ret.size() * sizeof(ret[0]);
+    IbvRegMr mr(global_pd_.get(), data, data_sz, do_migrate_mr_flags_);
+
+    {
+      struct ibv_sge sge = {};
+      sge.lkey = mr->lkey;
+      sge.addr = reinterpret_cast<uint64_t>(data);
+      sge.length = data_sz;
+
+      struct ibv_recv_wr *bad_wr;
+      struct ibv_recv_wr this_wr = {};
+      this_wr.wr_id = wrid;
+      this_wr.num_sge = 1;
+      this_wr.sg_list = &sge;
+
+      int ret_post_recv = ibv_post_recv(peer_qp, &this_wr, &bad_wr);
+      assert_p(ret_post_recv == 0, "ibv_post_recv");
+    }
+
+    {
+      struct ibv_wc wc[1];
+      while (true) {
+        int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
+        assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
+        if (ret_poll_cq > 0) {
+          assert_p(wc[0].status == 0, "ibv_poll_cq");
+          assert(wc[0].wr_id == wrid);
+          break;
+        }
+      }
+    }
+    return ret;
+  }
+
+  template <typename VT>
+  void send_vector(std::vector<VT> &v, uint64_t wrid, ibv_qp *dest_qp,
+                   ibv_cq *cq) {
+    auto data = v.data();
+    auto data_sz = v.size() * sizeof(v[0]);
+    IbvRegMr mr(global_pd_.get(), data, data_sz, do_migrate_mr_flags_);
+
+    struct ibv_sge sge = {};
+    sge.lkey = mr.get()->lkey;
+    sge.addr = reinterpret_cast<uintptr_t>(data);
+    sge.length = data_sz;
+
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
+    this_wr.wr_id = wrid;
+    this_wr.num_sge = 1;
+    this_wr.sg_list = &sge;
+    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.imm_data = htonl(self_index_);
+
+    int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
+    assert_p(ret_post_send == 0, "ibv_post_send");
+    struct ibv_wc completions[1];
+
+    while (true) {
+      int ret = ibv_poll_cq(cq, 1, completions);
+      if (ret > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        assert(completions[0].wr_id == wrid);
+        break;
+      }
+    }
+  }
+
   mig_ptr<T> poll_migrate() {
     // TODO: repost the recvs to do_migrate_qp
     std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
@@ -493,29 +702,71 @@ class RdmaControlPlane : public ControlPlane<T> {
     auto raw = t_allocator.register_preowned(
         *min_element(chunks.begin(), chunks.end()), chunks);
 
-    // confirm receiving
-    {
-      struct ibv_send_wr *bad_wr;
-      struct ibv_send_wr this_wr = {};
-      this_wr.wr_id = received_chunks_wrid_;
-      this_wr.num_sge = 0;
-      this_wr.sg_list = NULL;
-      this_wr.opcode = IBV_WR_SEND_WITH_IMM;
-      this_wr.send_flags = IBV_SEND_SIGNALED;
-      this_wr.imm_data = htonl(self_index_);
-      int ret_post_send = ibv_post_send(peer_qp, &this_wr, &bad_wr);
-      assert_p(ret_post_send == 0, "ibv_post_send");
 
-      while (true) {
-        struct ibv_wc completions[1];
-        int ret = ibv_poll_cq(do_migrate_cq_.get(), 1, completions);
-        if (ret > 0) {
-          assert_p(completions[0].status == 0, "ibv_poll_cq");
-          assert(completions[0].wr_id == received_chunks_wrid_);
-          break;
-        }
-      }
+    std::vector<IbvRegMr> mrs;
+    auto pages = slope::alloc::chunks_to_pages(chunks);
+    for (auto page : pages) {
+      mrs.emplace_back(global_pd_, reinterpret_cast<void *>(page.first),
+                       page.second, do_migrate_mr_flags_);
     }
+
+    for (auto &it : mrs) {
+      deb(it.get()->addr);
+      deb(it.get()->rkey);
+      std::cout << std::endl;
+    }
+
+    std::vector<uint32_t> local_rkeys;
+    std::transform(mrs.begin(), mrs.end(), std::back_inserter(local_rkeys),
+                   [&](auto &m) { return m.get()->rkey; });
+
+    deb(local_rkeys);
+    send_vector(local_rkeys, destination_rkeys_wrid_, peer_qp,
+                do_migrate_cq_.get());
+    std::cout << "sent" << std::endl;
+
+    auto vv = recv_vector<uintptr_t>(2, 1231, peer_qp, do_migrate_cq_);
+    std::vector<uintptr_t> payload(10);
+    std::iota(payload.begin(), payload.end(), 0);
+    IbvRegMr payload_mr(global_pd_.get(), payload.data(),
+                        10 * sizeof(payload[0]), shared_address_mr_flags_);
+    deb(vv[0]);
+    deb(static_cast<uint32_t>(vv[1]));
+    deb(vv);
+
+    do_nudge_write(peer_qp, do_migrate_cq_, vv[0], static_cast<uint32_t>(vv[1]),
+                   payload.data(), 10 * sizeof(payload[0]), payload_mr->lkey);
+
+    // auto out = get_nudge(peer_qp, do_migrate_cq_);
+    // deb(out);
+    debout("recvd");
+    deb(vv);
+    while (true) {
+    }
+
+    // // confirm receiving
+    // {
+    //   struct ibv_send_wr *bad_wr;
+    //   struct ibv_send_wr this_wr = {};
+    //   this_wr.wr_id = received_chunks_wrid_;
+    //   this_wr.num_sge = 0;
+    //   this_wr.sg_list = NULL;
+    //   this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+    //   this_wr.send_flags = IBV_SEND_SIGNALED;
+    //   this_wr.imm_data = htonl(self_index_);
+    //   int ret_post_send = ibv_post_send(peer_qp, &this_wr, &bad_wr);
+    //   assert_p(ret_post_send == 0, "ibv_post_send");
+
+    //   while (true) {
+    //     struct ibv_wc completions[1];
+    //     int ret = ibv_poll_cq(do_migrate_cq_.get(), 1, completions);
+    //     if (ret > 0) {
+    //       assert_p(completions[0].status == 0, "ibv_poll_cq");
+    //       assert(completions[0].wr_id == received_chunks_wrid_);
+    //       break;
+    //     }
+    //   }
+    // }
 
     debout("before return");
 
@@ -777,7 +1028,7 @@ class RdmaControlPlane : public ControlPlane<T> {
     return ret;
   }
 
-  void start_migrate_ping_pong(
+  std::vector<uint32_t> start_migrate_ping_pong(
       const std::string &dest,
       const std::vector<slope::alloc::memory_chunk> &chunks) {
     auto migrate_dest_qp =
@@ -869,32 +1120,55 @@ class RdmaControlPlane : public ControlPlane<T> {
       }
     }
 
-    {
-      struct ibv_recv_wr *in_bad_wr;
-      struct ibv_recv_wr in_this_wr = {};
-      in_this_wr.wr_id = received_chunks_wrid_;
-      in_this_wr.num_sge = 0;
-      in_this_wr.sg_list = NULL;
+    auto pages = slope::alloc::chunks_to_pages(chunks);
+    auto remote_rkeys = recv_vector<uint32_t>(
+        pages.size(), destination_rkeys_wrid_, dest_qp, cq.get());
 
-      int ret = ibv_post_recv(dest_qp, &in_this_wr, &in_bad_wr);
-      assert_p(ret == 0, "ibv_post_recv");
+    std::vector<uintptr_t> vv(2);
+    std::vector<uintptr_t> recv_buffer(10);
+    IbvRegMr mr(global_pd_.get(), recv_buffer.data(),
+                10 * sizeof(recv_buffer[0]), shared_address_mr_flags_);
+    vv[0] = reinterpret_cast<uintptr_t>(recv_buffer.data());
+    vv[1] = mr->rkey;
+    send_vector(vv, 12345, dest_qp, cq.get());
+    debout("sntd");
+    deb(vv);
+    // do_nudge(dest_qp, 987, cq.get());
+
+    auto ret_get_write = get_nudge_write(dest_qp, cq.get());
+    deb(ret_get_write);
+
+    deb(recv_buffer);
+    while (true) {
     }
 
-    {
-      struct ibv_wc completions[1];
-      while (true) {
-        int chunks_ret_poll_cq = ibv_poll_cq(do_migrate_cq_, 1, completions);
-        assert_p(chunks_ret_poll_cq >= 0 && chunks_ret_poll_cq <= 1,
-                 "ibv_poll_cq");
-        if (chunks_ret_poll_cq > 0) {
-          assert_p(completions[0].status == 0, "ibv_poll_cq");
-          deb(completions[0].wr_id);
-          deb(received_chunks_wrid_);
-          assert(completions[0].wr_id == received_chunks_wrid_);
-          break;
-        }
-      }
-    }
+    // {
+    //   struct ibv_recv_wr *in_bad_wr;
+    //   struct ibv_recv_wr in_this_wr = {};
+    //   in_this_wr.wr_id = received_chunks_wrid_;
+    //   in_this_wr.num_sge = 0;
+    //   in_this_wr.sg_list = NULL;
+
+    //   int ret = ibv_post_recv(dest_qp, &in_this_wr, &in_bad_wr);
+    //   assert_p(ret == 0, "ibv_post_recv");
+    // }
+
+    // {
+    //   struct ibv_wc completions[1];
+    //   while (true) {
+    //     int chunks_ret_poll_cq = ibv_poll_cq(do_migrate_cq_, 1,
+    //     completions); assert_p(chunks_ret_poll_cq >= 0 &&
+    //     chunks_ret_poll_cq <= 1,
+    //              "ibv_poll_cq");
+    //     if (chunks_ret_poll_cq > 0) {
+    //       assert_p(completions[0].status == 0, "ibv_poll_cq");
+    //       deb(completions[0].wr_id);
+    //       deb(received_chunks_wrid_);
+    //       assert(completions[0].wr_id == received_chunks_wrid_);
+    //       break;
+    //     }
+    //   }
+    // }
 
     // {
     //   std::stringstream deb_ss;
@@ -903,7 +1177,7 @@ class RdmaControlPlane : public ControlPlane<T> {
     //     static_cast<void*>(chunks_info.data());
     //   infoout(deb_ss.str());
     // }
-    debout("done ping pong");
+    return remote_rkeys;
   }
 
   void transfer_ownership_ping_pong(
@@ -921,6 +1195,8 @@ class RdmaControlPlane : public ControlPlane<T> {
   static inline const uint64_t calibrate_time_wrid_ = 0xd018;
   static inline const uint64_t chunks_info_wrid_ = 0xd019;
   static inline const uint64_t received_chunks_wrid_ = 0xd01a;
+  static inline const uint64_t destination_rkeys_wrid_ = 0xd01b;
+  static inline const uint64_t do_prefill_wrid_ = 0xd01c;
 
   std::string peer_done_key(const std::string &peer_name) {
     return peer_name + "_DONE";
@@ -945,6 +1221,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
   static inline const int shared_address_mr_flags_ =
       IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_WRITE;
+  static inline const int sender_prefill_mr_flags_ = 0;
   DoMigrateRequest do_migrate_req_;
   IbvRegMr do_migrate_mr_;
   IbvCreateCq do_migrate_cq_;

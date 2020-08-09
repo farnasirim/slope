@@ -29,7 +29,7 @@ void testdrive_migrate(typename
     {
       debout("acquiring a context for adding elements to the vector");
       auto lock = ptr.create_context();
-      for(int i = 0; i <10; i++) {
+      for (int i = 0; i < 10; i++) {
         ptr.get()->push_back(i);
       }
     }

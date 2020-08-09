@@ -23,13 +23,13 @@ namespace control {
 using json = nlohmann::json;
 
 void TwoStepMigrationOperation::commit() {
-  m_.unlock();
+  m_->unlock();
   t_.join();
 }
 
-TwoStepMigrationOperation::TwoStepMigrationOperation(std::mutex& m,
-    std::thread t): m_(m), t_(std::move(t)) {
-}
+TwoStepMigrationOperation::TwoStepMigrationOperation(
+    std::shared_ptr<std::mutex> m, std::thread t)
+    : m_(m), t_(std::move(t)) {}
 
 NodeInfo::NodeInfo(std::string node_id_v,
     const std::map<std::string, std::vector<QpInfo>>& qp_sets):
