@@ -223,33 +223,26 @@ class RdmaControlPlane : public ControlPlane<T> {
     }
   }
 
-  void write_page(ibv_mr *mr, ibv_qp *qp, uint32_t rkey, uint64_t wrid,
-                  ibv_cq *cq) {
-    int ret = 0;
-    struct ibv_send_wr *bad_send_wr;
+  void write_page(uintptr_t page_addr, uint32_t sz, uint32_t lkey, ibv_qp *qp,
+                  uint32_t rkey, uint64_t wrid, ibv_cq *cq) {
+    struct ibv_sge sge = {};
+    sge.addr = reinterpret_cast<uintptr_t>(page_addr);
+    sge.length = sz;
+    sge.lkey = lkey;
 
-    // struct ibv_sge list;
-    // list.addr = reinterpret_cast<uintptr_t>(mr->addr);
-    // list.length = static_cast<uint32_t>(mr->length);
-    // list.lkey = mr->lkey;
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
 
-    struct ibv_send_wr send_wr;
-    send_wr.wr_id = wrid;
-    send_wr.sg_list = NULL;
-    send_wr.num_sge = 0;
-    send_wr.opcode = IBV_WR_SEND_WITH_IMM;
-    send_wr.send_flags = IBV_SEND_SIGNALED;
-    send_wr.imm_data = htonl(12346);
-    // send_wr.wr.rdma.remote_addr = reinterpret_cast<uintptr_t>(mr->addr);
-    // send_wr.wr.rdma.rkey = rkey;
+    this_wr.wr_id = wrid;
+    this_wr.num_sge = 1;
+    this_wr.sg_list = &sge;
+    this_wr.opcode = IBV_WR_RDMA_WRITE;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.wr.rdma.remote_addr = page_addr;
+    this_wr.wr.rdma.rkey = rkey;
 
-    deb(mr->addr);
-    deb(rkey);
-
-    auto ret_send = ibv_post_send(qp, &send_wr, &bad_send_wr);
-    std::cout << "send done" << std::endl;
+    auto ret_send = ibv_post_send(qp, &this_wr, &bad_wr);
     assert_p(ret_send == 0, "ibv_post_send");
-    std::cout << "after assert" << std::endl;
 
     struct ibv_wc completions[1];
     while (true) {
@@ -289,18 +282,21 @@ class RdmaControlPlane : public ControlPlane<T> {
           for (size_t i = 0; i < pages.size(); i++) {
             auto rkey = remote_rkeys[i];
             auto page = pages[i];
-            if (mprotect(reinterpret_cast<void *>(page.first), page.second,
-                         PROT_READ)) {
-              perror("mprotect");
-              assert(false);
-            }
+            // if (mprotect(reinterpret_cast<void *>(page.first), page.second,
+            //              PROT_READ)) {
+            //   perror("mprotect");
+            //   assert(false);
+            // }
             source_mrs.emplace_back(global_pd_,
                                     reinterpret_cast<void *>(page.first),
-                                    page.second, sender_prefill_mr_flags_);
+                                    page.second, shared_address_mr_flags_);
             std::cout << "call write page" << std::endl;
-            // write_page(source_mrs.back(), dest_qp, rkey,
-            //            static_cast<uint64_t>(wrid::prefill_page), cq);
+            write_page(page.first, page.second, source_mrs.back()->lkey,
+                       dest_qp, rkey, static_cast<uint64_t>(wrid::prefill_page),
+                       cq.get());
           }
+
+          std::cout << "finish" << std::endl;
 
           // for(auto& chunk: chunks) {
           //   deb(chunk);
@@ -707,7 +703,7 @@ class RdmaControlPlane : public ControlPlane<T> {
     auto pages = slope::alloc::chunks_to_pages(chunks);
     for (auto page : pages) {
       mrs.emplace_back(global_pd_, reinterpret_cast<void *>(page.first),
-                       page.second, do_migrate_mr_flags_);
+                       page.second, shared_address_mr_flags_);
     }
 
     for (auto &it : mrs) {
@@ -724,24 +720,10 @@ class RdmaControlPlane : public ControlPlane<T> {
     send_vector(local_rkeys, destination_rkeys_wrid_, peer_qp,
                 do_migrate_cq_.get());
     std::cout << "sent" << std::endl;
-
-    auto vv = recv_vector<uintptr_t>(2, 1231, peer_qp, do_migrate_cq_);
-    std::vector<uintptr_t> payload(10);
-    std::iota(payload.begin(), payload.end(), 0);
-    IbvRegMr payload_mr(global_pd_.get(), payload.data(),
-                        10 * sizeof(payload[0]), shared_address_mr_flags_);
-    deb(vv[0]);
-    deb(static_cast<uint32_t>(vv[1]));
-    deb(vv);
-
-    do_nudge_write(peer_qp, do_migrate_cq_, vv[0], static_cast<uint32_t>(vv[1]),
-                   payload.data(), 10 * sizeof(payload[0]), payload_mr->lkey);
-
-    // auto out = get_nudge(peer_qp, do_migrate_cq_);
-    // deb(out);
-    debout("recvd");
-    deb(vv);
-    while (true) {
+    for (auto &this_mr : mrs) {
+      deb(this_mr.get()->addr);
+      deb(this_mr.get()->length);
+      deb(this_mr.get()->rkey);
     }
 
     // // confirm receiving
@@ -768,10 +750,7 @@ class RdmaControlPlane : public ControlPlane<T> {
     //   }
     // }
 
-    debout("before return");
-
-    while (true) {
-    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
     return mig_ptr<T>::adopt(raw);
   }
@@ -1123,24 +1102,6 @@ class RdmaControlPlane : public ControlPlane<T> {
     auto pages = slope::alloc::chunks_to_pages(chunks);
     auto remote_rkeys = recv_vector<uint32_t>(
         pages.size(), destination_rkeys_wrid_, dest_qp, cq.get());
-
-    std::vector<uintptr_t> vv(2);
-    std::vector<uintptr_t> recv_buffer(10);
-    IbvRegMr mr(global_pd_.get(), recv_buffer.data(),
-                10 * sizeof(recv_buffer[0]), shared_address_mr_flags_);
-    vv[0] = reinterpret_cast<uintptr_t>(recv_buffer.data());
-    vv[1] = mr->rkey;
-    send_vector(vv, 12345, dest_qp, cq.get());
-    debout("sntd");
-    deb(vv);
-    // do_nudge(dest_qp, 987, cq.get());
-
-    auto ret_get_write = get_nudge_write(dest_qp, cq.get());
-    deb(ret_get_write);
-
-    deb(recv_buffer);
-    while (true) {
-    }
 
     // {
     //   struct ibv_recv_wr *in_bad_wr;

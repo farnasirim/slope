@@ -59,9 +59,9 @@ void testdrive_migrate(typename
   } else {
     // control_plane->simple_recv();
     while(true) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
       auto migrated_ptr = control_plane->poll_migrate();
       if(migrated_ptr.get() != nullptr) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
         deb(*migrated_ptr.get());
         for(auto it: migrated_ptr.get_pages()) {
           std::stringstream out;
@@ -71,6 +71,7 @@ void testdrive_migrate(typename
           debout(out.str());
         }
         std::cout << "vector contents:" << std::endl;
+        deb((*migrated_ptr.get()).size());
         for(auto it: *migrated_ptr.get()) {
           std::cout << it << " ";
         }
@@ -80,5 +81,4 @@ void testdrive_migrate(typename
     }
     debout("done");
   }
-
 }
