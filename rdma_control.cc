@@ -91,11 +91,10 @@ void FullMeshQpSet::finalize(const std::vector<QpInfo>& remote_qps) {
   }
 }
 
-
-std::vector<QpInfo> FullMeshQpSet::prepare(const std::string& self_name,
-    const std::vector<std::string>& nodes, const IbvAllocPd& pd,
-    struct ibv_port_attr& port_attrs, const struct ibv_device_attr& dev_attrs) {
-
+std::vector<QpInfo> FullMeshQpSet::prepare(
+    const std::string& self_name, const std::vector<std::string>& nodes,
+    const IbvAllocPd& pd, struct ibv_port_attr& port_attrs,
+    const struct ibv_device_attr& dev_attrs, int sig_all) {
   std::vector<QpInfo> ret;
 
   for(auto peer_name: nodes) {
@@ -113,6 +112,8 @@ std::vector<QpInfo> FullMeshQpSet::prepare(const std::string& self_name,
     qp_init_attr.cap.max_recv_wr = 1024;
     qp_init_attr.cap.max_send_sge = 20;
     qp_init_attr.cap.max_recv_sge = 20;
+    qp_init_attr.sq_sig_all = sig_all;
+
     // qp_init.cap.max_inline_data = 60;
     qp_init_attr.qp_type = IBV_QPT_RC;
     auto attr_ptr = std::make_unique<ibv_qp_init_attr>(qp_init_attr);

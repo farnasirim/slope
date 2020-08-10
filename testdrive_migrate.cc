@@ -50,7 +50,6 @@ void testdrive_migrate(typename
 
     debout("start the migration");
     deb(control_plane->cluster_nodes());
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     // control_plane->simple_send();
     auto operation =
       control_plane->init_migration(control_plane->cluster_nodes()[1], ptr);
@@ -61,7 +60,6 @@ void testdrive_migrate(typename
     while(true) {
       auto migrated_ptr = control_plane->poll_migrate();
       if(migrated_ptr.get() != nullptr) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
         deb(*migrated_ptr.get());
         for(auto it: migrated_ptr.get_pages()) {
           std::stringstream out;

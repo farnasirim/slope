@@ -1,34 +1,29 @@
-#include <cstdlib>
-#include <cmath>
-#include <thread>
-#include <cassert>
-#include <cstring>
-#include <cstdio>
-
 #include <errno.h>
+#include <libmemcached/memcached.h>
 #include <malloc.h>
 
-#include <iostream>
 #include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <thread>
 #include <vector>
 
-#include <libmemcached/memcached.h>
-
+#include "allocator.h"
+#include "debug.h"
+#include "discovery.h"
 #include "ib.h"
 #include "ib_container.h"
 #include "logging.h"
-#include "modify_qp.h"
-#include "slope.h"
-#include "allocator.h"
-#include "discovery.h"
-#include "stat.h"
-#include "testdrive_migrate.h"
-
-#include "rdma_control.h"
 #include "memcached_kv.h"
-
-#include "debug.h"
-
+#include "modify_qp.h"
+#include "rdma_control.h"
+#include "sig.h"
+#include "slope.h"
+#include "stat.h"
 #include "testdrive_migrate.h"
 
 struct payload {
@@ -42,6 +37,7 @@ using json = nlohmann::json;
 
 
 int main(int argc, char **argv) {
+  slope::sig::install_sigsegv_handler();
   if(argc < 4) {
     std::cerr << "incorrect num args" << std::endl;
     exit(-1);

@@ -23,6 +23,7 @@
 #include "mig.h"
 #include "modify_qp.h"
 #include "stat.h"
+#include "thread_joiner.h"
 
 namespace slope {
 namespace control {
@@ -35,6 +36,8 @@ enum class wrid : uint64_t {
   received_chunks,
   destination_rkeys,
   prefill_page,
+  dirty_pages_count,
+  dirty_pages
 };
 
 struct QpInfo {
@@ -66,6 +69,11 @@ struct DoMigrateChunk {
   uintptr_t addr;
   size_t sz;
 };
+
+struct Page {
+  uintptr_t addr;
+  size_t sz;
+};
 }
 
 class TwoStepMigrationOperation : public MigrationOperation {
@@ -86,7 +94,8 @@ class FullMeshQpSet {
                               const std::vector<std::string> &nodes,
                               const IbvAllocPd &pd,
                               struct ibv_port_attr &port_attrs,
-                              const struct ibv_device_attr &dev_attrs);
+                              const struct ibv_device_attr &dev_attrs,
+                              int sig_all);
   void finalize(const std::vector<QpInfo> &remote_qps);
 
   const IbvCreateCq &cq_;
@@ -237,22 +246,12 @@ class RdmaControlPlane : public ControlPlane<T> {
     this_wr.num_sge = 1;
     this_wr.sg_list = &sge;
     this_wr.opcode = IBV_WR_RDMA_WRITE;
-    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.send_flags = 0;
     this_wr.wr.rdma.remote_addr = page_addr;
     this_wr.wr.rdma.rkey = rkey;
 
     auto ret_send = ibv_post_send(qp, &this_wr, &bad_wr);
     assert_p(ret_send == 0, "ibv_post_send");
-
-    struct ibv_wc completions[1];
-    while (true) {
-      auto ret_poll = ibv_poll_cq(cq, 1, completions);
-      if (ret_poll > 0) {
-        assert_p(completions[0].status == 0, "ibv_poll_cq");
-        assert(completions[0].wr_id == wrid);
-        break;
-      }
-    }
   }
 
   virtual MigrationOperation::ptr init_migration(
@@ -282,21 +281,30 @@ class RdmaControlPlane : public ControlPlane<T> {
           for (size_t i = 0; i < pages.size(); i++) {
             auto rkey = remote_rkeys[i];
             auto page = pages[i];
-            // if (mprotect(reinterpret_cast<void *>(page.first), page.second,
-            //              PROT_READ)) {
-            //   perror("mprotect");
-            //   assert(false);
-            // }
+            if (mprotect(reinterpret_cast<void *>(page.first), page.second,
+                         PROT_READ)) {
+              perror("mprotect");
+              assert(false);
+            }
             source_mrs.emplace_back(global_pd_,
                                     reinterpret_cast<void *>(page.first),
-                                    page.second, shared_address_mr_flags_);
+                                    page.second, 0);
             std::cout << "call write page" << std::endl;
             write_page(page.first, page.second, source_mrs.back()->lkey,
                        dest_qp, rkey, static_cast<uint64_t>(wrid::prefill_page),
                        cq.get());
           }
 
-          std::cout << "finish" << std::endl;
+          // TODO: get dirty pages
+          std::vector<Page> dirty_pages;
+
+          send_imm(static_cast<uint32_t>(dirty_pages.size()),
+                   static_cast<uint64_t>(wrid::dirty_pages_count), dest_qp,
+                   do_migrate_cq_.get());
+          if (!dirty_pages.empty()) {
+            send_vector(dirty_pages, static_cast<uint64_t>(wrid::dirty_pages),
+                        dest_qp, do_migrate_cq_.get());
+          }
 
           // for(auto& chunk: chunks) {
           //   deb(chunk);
@@ -359,7 +367,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       fullmesh_qps_.try_emplace(set_name, get_cq(set_name));
       auto qps = fullmesh_qps_[set_name].prepare(
           self_name_, cluster_nodes_, global_pd_, operating_port_attr_,
-          dev_attrs_);
+          dev_attrs_, set_name != shared_address_qps_key_);
       all_qps[set_name] = qps;
     }
 
@@ -581,6 +589,52 @@ class RdmaControlPlane : public ControlPlane<T> {
     return ret;
   }
 
+  void send_imm(uint32_t val, uint64_t wrid, ibv_qp *dest_qp, ibv_cq *cq) {
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
+    this_wr.wr_id = wrid;
+    this_wr.num_sge = 0;
+    this_wr.sg_list = nullptr;
+    this_wr.opcode = IBV_WR_SEND_WITH_IMM;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.imm_data = htonl(val);
+
+    int ret_post_send = ibv_post_send(dest_qp, &this_wr, &bad_wr);
+    assert_p(ret_post_send == 0, "ibv_post_send");
+    struct ibv_wc completions[1];
+
+    while (true) {
+      int ret = ibv_poll_cq(cq, 1, completions);
+      if (ret > 0) {
+        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        assert(completions[0].wr_id == wrid);
+        break;
+      }
+    }
+  }
+
+  uint32_t recv_imm(uint64_t wrid, ibv_qp *peer_qp, ibv_cq *cq) {
+    struct ibv_recv_wr *bad_wr;
+    struct ibv_recv_wr this_wr = {};
+    this_wr.wr_id = wrid;
+    this_wr.num_sge = 0;
+    this_wr.sg_list = nullptr;
+    int ret_post_recv = ibv_post_recv(peer_qp, &this_wr, &bad_wr);
+    assert_p(ret_post_recv == 0, "ibv_post_recv");
+    struct ibv_wc wc[1];
+    while (true) {
+      int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
+      assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
+      if (ret_poll_cq > 0) {
+        assert_p(wc[0].status == 0, "ibv_poll_cq");
+        assert(wc[0].wr_id == wrid);
+        return ntohl(wc[0].imm_data);
+        break;
+      }
+    }
+    return 0;
+  }
+
   template <typename VT>
   void send_vector(std::vector<VT> &v, uint64_t wrid, ibv_qp *dest_qp,
                    ibv_cq *cq) {
@@ -698,60 +752,65 @@ class RdmaControlPlane : public ControlPlane<T> {
     auto raw = t_allocator.register_preowned(
         *min_element(chunks.begin(), chunks.end()), chunks);
 
-
     std::vector<IbvRegMr> mrs;
     auto pages = slope::alloc::chunks_to_pages(chunks);
     for (auto page : pages) {
       mrs.emplace_back(global_pd_, reinterpret_cast<void *>(page.first),
                        page.second, shared_address_mr_flags_);
+
+      if (mprotect(reinterpret_cast<void *>(page.first), page.second,
+                   PROT_NONE)) {
+        perror("mprotect");
+        assert(false);
+      }
     }
 
-    for (auto &it : mrs) {
-      deb(it.get()->addr);
-      deb(it.get()->rkey);
-      std::cout << std::endl;
-    }
+    joiner_.add(std::thread([this, peer_qp, mrs = std::move(mrs), pages] {
+      for (auto &it : mrs) {
+        deb(it.get()->addr);
+        deb(it.get()->rkey);
+        std::cout << std::endl;
+      }
 
-    std::vector<uint32_t> local_rkeys;
-    std::transform(mrs.begin(), mrs.end(), std::back_inserter(local_rkeys),
-                   [&](auto &m) { return m.get()->rkey; });
+      std::vector<uint32_t> local_rkeys;
+      std::transform(mrs.begin(), mrs.end(), std::back_inserter(local_rkeys),
+                     [&](auto &m) { return m.get()->rkey; });
 
-    deb(local_rkeys);
-    send_vector(local_rkeys, destination_rkeys_wrid_, peer_qp,
-                do_migrate_cq_.get());
-    std::cout << "sent" << std::endl;
-    for (auto &this_mr : mrs) {
-      deb(this_mr.get()->addr);
-      deb(this_mr.get()->length);
-      deb(this_mr.get()->rkey);
-    }
+      deb(local_rkeys);
+      send_vector(local_rkeys, destination_rkeys_wrid_, peer_qp,
+                  do_migrate_cq_.get());
 
-    // // confirm receiving
-    // {
-    //   struct ibv_send_wr *bad_wr;
-    //   struct ibv_send_wr this_wr = {};
-    //   this_wr.wr_id = received_chunks_wrid_;
-    //   this_wr.num_sge = 0;
-    //   this_wr.sg_list = NULL;
-    //   this_wr.opcode = IBV_WR_SEND_WITH_IMM;
-    //   this_wr.send_flags = IBV_SEND_SIGNALED;
-    //   this_wr.imm_data = htonl(self_index_);
-    //   int ret_post_send = ibv_post_send(peer_qp, &this_wr, &bad_wr);
-    //   assert_p(ret_post_send == 0, "ibv_post_send");
+      // TODO:
+      // confirm receiving
+      auto num_dirty_pages =
+          recv_imm(static_cast<uint64_t>(wrid::dirty_pages_count), peer_qp,
+                   do_migrate_cq_.get());
+      deb(num_dirty_pages);
+      std::vector<Page> dirty_pages;
+      if (num_dirty_pages) {
+        dirty_pages = recv_vector<Page>(
+            num_dirty_pages, static_cast<uint64_t>(wrid::dirty_pages), peer_qp,
+            do_migrate_cq_.get());
+      }
+      size_t dirty_page_index = 0;
+      for (auto page : pages) {
+        while (dirty_page_index < num_dirty_pages &&
+               dirty_pages[dirty_page_index].addr < page.first) {
+          dirty_page_index++;
+        }
+        if (dirty_page_index < num_dirty_pages &&
+            dirty_pages[dirty_page_index].addr == page.first) {
+          continue;
+        }
+        if (mprotect(reinterpret_cast<void *>(page.first), page.second,
+                     PROT_READ | PROT_WRITE)) {
+          perror("mprotect");
+          assert(false);
+        }
+      }
+    }));
 
-    //   while (true) {
-    //     struct ibv_wc completions[1];
-    //     int ret = ibv_poll_cq(do_migrate_cq_.get(), 1, completions);
-    //     if (ret > 0) {
-    //       assert_p(completions[0].status == 0, "ibv_poll_cq");
-    //       assert(completions[0].wr_id == received_chunks_wrid_);
-    //       break;
-    //     }
-    //   }
-    // }
-
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-
+    debout("to return");
     return mig_ptr<T>::adopt(raw);
   }
 
@@ -965,6 +1024,8 @@ class RdmaControlPlane : public ControlPlane<T> {
   }
 
  private:
+  ds::ThreadJoiner joiner_;
+
   void init_cluster() {
     assert(keyvalue_service_->set(migrate_in_progress_cas_name_, "0"));
   }
