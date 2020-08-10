@@ -13,10 +13,12 @@
 namespace slope {
 namespace sig {
 
-void reg();
-void add_page();
+void add_page_dirty_detection();
 void handler(int signo, siginfo_t *info, void *context);
 void install_sigsegv_handler();
+bool is_dirty(uintptr_t page);
+void remove_dirty_detection(uintptr_t page);
+void add_dirty_detection(uintptr_t page);
 //   struct sigaction sa;
 // 
 //   sa.sa_sigaction = handler;
