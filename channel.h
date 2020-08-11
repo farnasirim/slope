@@ -19,7 +19,11 @@ class Channel {
 
   T block_to_pop() {
     std::unique_lock<std::mutex> lk(m_);
-    cv_.wait(lk, [&] { return !q_.empty() || is_closed_; });
+    cv_.wait(lk, [&] {
+      std::cout << q_.empty() << is_closed_ << std::endl;
+      return !q_.empty() || is_closed_;
+    });
+    std::cout << "here" << std::endl;
     if (q_.empty()) {
       throw std::exception();
     }

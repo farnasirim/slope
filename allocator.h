@@ -41,6 +41,8 @@ extern std::unordered_map<uintptr_t, std::set<slope::alloc::memory_chunk>>
   object_allocations;
 extern std::unordered_map<uintptr_t, uintptr_t> addr_to_owner;
 
+uintptr_t page_of_addr(uintptr_t addr);
+
 class OwnershipFrame: public std::enable_shared_from_this<OwnershipFrame> {
  public:
   OwnershipFrame(std::vector<std::shared_ptr<OwnershipFrame>>& ownership_stack,

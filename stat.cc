@@ -1,5 +1,6 @@
 #include "stat.h"
 
+#include <mutex>
 #include <vector>
 
 #include "cluster_time.h"
@@ -8,6 +9,7 @@ namespace slope {
 namespace stat {
 
 static std::unordered_map<std::string, std::vector<LogEntry>> logs;
+static std::mutex lk;
 
 LogEntry::LogEntry(const std::string& value_):
   relative_timestamp(std::chrono::high_resolution_clock::now()
@@ -15,14 +17,12 @@ LogEntry::LogEntry(const std::string& value_):
   value(value_) { }
 
 void add_value(const std::string& key, const std::string& val) {
+  std::lock_guard<std::mutex> _(lk);
   logs[key].emplace_back(val);
 }
 
 void to_json(json& j, const LogEntry& e) noexcept {
-  j = json{
-    {"nanos", e.relative_timestamp.count()},
-    {"value", e.value}
-  };
+  j = json{{"nanos", e.relative_timestamp.count()}, {"value", e.value}};
 }
 
 json get_all_logs() {

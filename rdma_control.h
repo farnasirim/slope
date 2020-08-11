@@ -6,6 +6,7 @@
 
 #include <cassert>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -22,6 +23,7 @@
 #include "keyvalue.h"
 #include "mig.h"
 #include "modify_qp.h"
+#include "page_tracker.h"
 #include "sig.h"
 #include "stat.h"
 #include "thread_joiner.h"
@@ -40,6 +42,7 @@ enum class wrid : uint64_t {
   dirty_pages_count,
   dirty_pages,
   dirty_rkeys,
+  read_dirty_page,
   final_confirmation,
 };
 
@@ -118,6 +121,9 @@ std::string time_point_to_string(
 
 template <typename T>
 class RdmaControlPlane : public ControlPlane<T> {
+ private:
+  ds::ThreadJoiner joiner_;
+
  public:
   const std::string self_name_;
   size_t self_index_;
@@ -249,23 +255,23 @@ class RdmaControlPlane : public ControlPlane<T> {
     this_wr.num_sge = 1;
     this_wr.sg_list = &sge;
     this_wr.opcode = IBV_WR_RDMA_READ;
-    this_wr.send_flags = 0;
+    this_wr.send_flags = IBV_SEND_SIGNALED;  // unsignaled
     this_wr.wr.rdma.remote_addr = page_addr;
     this_wr.wr.rdma.rkey = rkey;
 
     auto ret_send = ibv_post_send(qp, &this_wr, &bad_wr);
     assert_p(ret_send == 0, "ibv_post_send");
 
-    // while (true) {
-    //   struct ibv_wc wc[1] = {};
-    //   int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
-    //   assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
-    //   if (ret_poll_cq > 0) {
-    //     assert_p(wc[0].status == 0, "ibv_poll_cq");
-    //     assert(wc[0].wr_id == wrid);
-    //     break;
-    //   }
-    // }
+    while (true) {
+      struct ibv_wc wc[1] = {};
+      int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
+      assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
+      if (ret_poll_cq > 0) {
+        assert_p(wc[0].status == 0, "ibv_poll_cq");
+        assert(wc[0].wr_id == wrid);
+        break;
+      }
+    }
   }
 
   void write_page(uintptr_t page_addr, uint32_t sz, uint32_t lkey, ibv_qp *qp,
@@ -340,6 +346,7 @@ class RdmaControlPlane : public ControlPlane<T> {
               write_page(page.first, page.second, source_mrs.back()->lkey,
                          dest_qp, rkey,
                          static_cast<uint64_t>(wrid::prefill_page), cq.get());
+              sig::finish_transfer(page.first);
             }
 
             m->lock();
@@ -359,6 +366,7 @@ class RdmaControlPlane : public ControlPlane<T> {
             send_imm(static_cast<uint32_t>(dirty_pages.size()),
                      static_cast<uint64_t>(wrid::dirty_pages_count), dest_qp,
                      do_migrate_cq_.get());
+            deb(static_cast<int>(dirty_pages.empty()));
             if (!dirty_pages.empty()) {
               send_vector(dirty_pages, static_cast<uint64_t>(wrid::dirty_pages),
                           dest_qp, do_migrate_cq_.get());
@@ -368,9 +376,10 @@ class RdmaControlPlane : public ControlPlane<T> {
                                        page.sz, final_read_mr_flags_);
               }
               std::vector<uint32_t> dirty_rkeys;
-              std::transform(dirty_mrs.begin(), dirty_mrs.end(),
-                             std::back_inserter(dirty_rkeys),
-                             [&](auto &m) { return m.get()->rkey; });
+              std::transform(
+                  dirty_mrs.begin(), dirty_mrs.end(),
+                  std::back_inserter(dirty_rkeys),
+                  [&](auto &current_mr) { return current_mr.get()->rkey; });
               send_vector(dirty_rkeys, static_cast<uint64_t>(wrid::dirty_rkeys),
                           dest_qp, do_migrate_cq_.get());
             }
@@ -838,7 +847,7 @@ class RdmaControlPlane : public ControlPlane<T> {
         }
       }
 
-      joiner_.add(std::thread([this, peer_qp, mrs = std::move(mrs), pages] {
+      std::thread([this, peer_qp, mrs = std::move(mrs), pages] {
         for (auto &it : mrs) {
           deb(it.get()->addr);
           deb(it.get()->rkey);
@@ -856,9 +865,10 @@ class RdmaControlPlane : public ControlPlane<T> {
         auto num_dirty_pages =
             recv_imm(static_cast<uint64_t>(wrid::dirty_pages_count), peer_qp,
                      do_migrate_cq_.get());
-        deb(num_dirty_pages);
+
         std::vector<Page> dirty_pages;
         std::vector<uint32_t> dirty_rkeys;
+        deb(num_dirty_pages);
         if (num_dirty_pages) {
           dirty_pages = recv_vector<Page>(
               num_dirty_pages, static_cast<uint64_t>(wrid::dirty_pages),
@@ -866,10 +876,11 @@ class RdmaControlPlane : public ControlPlane<T> {
           dirty_rkeys = recv_vector<uint32_t>(
               num_dirty_pages, static_cast<uint64_t>(wrid::dirty_rkeys),
               peer_qp, do_migrate_cq_.get());
-          deb(dirty_pages);
         }
+
         size_t dirty_page_index = 0;
-        PageTracker pt;
+        slope::ds::PageTracker pt;
+        slope::sig::set_active_tracker(&pt);
         for (size_t i = 0; i < pages.size(); i++) {
           auto page = pages[i];
           while (dirty_page_index < num_dirty_pages &&
@@ -878,10 +889,14 @@ class RdmaControlPlane : public ControlPlane<T> {
           }
           if (dirty_page_index < num_dirty_pages &&
               dirty_pages[dirty_page_index].addr == page.first) {
-            pt.add(slope::ds::Page(dirty_pages[dirty_page_index].first,
-                                   dirty_pages[dirty_page_index].second,
-                                   mrs[i]->lkey,
+            pt.add(slope::ds::Page(dirty_pages[dirty_page_index].addr,
+                                   dirty_pages[dirty_page_index].sz,
+                                   mrs[i].get()->lkey,
                                    dirty_rkeys[dirty_page_index]));
+            deb(dirty_pages[dirty_page_index].addr);
+            deb(dirty_pages[dirty_page_index].sz);
+            deb(mrs[i].get()->lkey);
+            deb(dirty_rkeys[dirty_page_index]);
             continue;
           }
           if (mprotect(reinterpret_cast<void *>(page.first), page.second,
@@ -890,27 +905,32 @@ class RdmaControlPlane : public ControlPlane<T> {
             assert(false);
           }
         }
+        pt.close();
 
-        while (!pt.empty()) {
-          auto page = pt.front();
-          pt.pop();
-          read_page(page.addr, page.sz, page.lkey, peer_qp, page.remote_rkey,
-                    static_cast<uint64_t>(wrid::read_page),
-                    do_migrate_cq_.get());
-          if (mprotect(reinterpret_cast<void *>(page.first), page.second,
-                       PROT_READ | PROT_WRITE)) {
-            perror("mprotect");
-            assert(false);
+        std::cout << "bef while" << std::endl;
+        try {
+          while (true) {
+            auto page = pt.pop();
+            read_page(page.addr, page.sz, page.lkey, peer_qp, page.remote_rkey,
+                      static_cast<uint64_t>(wrid::read_dirty_page),
+                      do_migrate_cq_.get());
+            if (mprotect(reinterpret_cast<void *>(page.addr), page.sz,
+                         PROT_READ | PROT_WRITE)) {
+              perror("mprotect");
+              assert(false);
+            }
           }
-          pt.notify(page.addr);
+        } catch (std::exception &) {
+          debout("caught");
         }
+        std::cout << "in while" << std::endl;
 
-      send_imm(static_cast<uint32_t>(final_confirmation_value_,
+        slope::sig::set_active_tracker(nullptr);
+        send_imm(final_confirmation_value_,
                  static_cast<uint64_t>(wrid::final_confirmation), peer_qp,
                  do_migrate_cq_.get());
-      }));
+      }).join();
 
-      debout("to return");
       return mig_ptr<T>::adopt(raw);
     }
 
@@ -1124,9 +1144,6 @@ class RdmaControlPlane : public ControlPlane<T> {
         deb(*p);
       }
     }
-
-   private:
-    ds::ThreadJoiner joiner_;
 
     void init_cluster() {
       assert(keyvalue_service_->set(migrate_in_progress_cas_name_, "0"));

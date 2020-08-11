@@ -54,12 +54,17 @@ void testdrive_migrate(typename
     auto operation =
       control_plane->init_migration(control_plane->cluster_nodes()[1], ptr);
     // use ptr without alloc/dealloc
+    // for (unsigned int i = 1; i < 1e8; i++) {
+    //   (*ptr.get())[0] = 10;
+    // }
     operation->commit();
   } else {
     // control_plane->simple_recv();
     while(true) {
       auto migrated_ptr = control_plane->poll_migrate();
-      if(migrated_ptr.get() != nullptr) {
+      debout("null");
+      if (migrated_ptr.get() != nullptr) {
+        debout("returned");
         deb(*migrated_ptr.get());
         for(auto it: migrated_ptr.get_pages()) {
           std::stringstream out;

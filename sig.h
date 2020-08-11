@@ -9,6 +9,7 @@
 #include <cstdio>
 
 #include "allocator.h"
+#include "page_tracker.h"
 
 namespace slope {
 namespace sig {
@@ -19,6 +20,8 @@ void install_sigsegv_handler();
 bool is_dirty(uintptr_t page);
 void remove_dirty_detection(uintptr_t page);
 void add_dirty_detection(uintptr_t page);
+void finish_transfer(uintptr_t page);
+void set_active_tracker(slope::ds::PageTracker *active_tracker);
 //   struct sigaction sa;
 // 
 //   sa.sa_sigaction = handler;

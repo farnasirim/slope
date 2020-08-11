@@ -43,7 +43,12 @@ std::size_t align_to_page(std::size_t n) {
   return (n + page_size - 1) & ~(page_size - 1);
 }
 
-std::vector<memory_chunk> chunks_to_pages(const std::vector<memory_chunk>& chunks) {
+uintptr_t page_of_addr(uintptr_t addr) {
+  return addr & ~(slope::alloc::page_size - 1);
+}
+
+std::vector<memory_chunk> chunks_to_pages(
+    const std::vector<memory_chunk>& chunks) {
   std::map<uintptr_t, size_t> pages;
   for(auto [start_addr, sz]: chunks) {
     auto prev = pages[start_addr & ~(slope::alloc::page_size - 1)];
