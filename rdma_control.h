@@ -47,7 +47,7 @@ enum class wrid : uint64_t {
 };
 
 struct QpInfo {
-  QpInfo() = default;
+  QpInfo();
   QpInfo(short unsigned int host_port_lid, unsigned int host_qp_num,
          const std::string &host_node_id,
          const std::string &remote_end_node_id);
@@ -342,7 +342,6 @@ class RdmaControlPlane : public ControlPlane<T> {
               source_mrs.emplace_back(global_pd_,
                                       reinterpret_cast<void *>(page.first),
                                       page.second, 0);
-              std::cout << "call write page" << std::endl;
               write_page(page.first, page.second, source_mrs.back()->lkey,
                          dest_qp, rkey,
                          static_cast<uint64_t>(wrid::prefill_page), cq.get());
@@ -851,7 +850,6 @@ class RdmaControlPlane : public ControlPlane<T> {
         for (auto &it : mrs) {
           deb(it.get()->addr);
           deb(it.get()->rkey);
-          std::cout << std::endl;
         }
 
         std::vector<uint32_t> local_rkeys;
@@ -907,7 +905,6 @@ class RdmaControlPlane : public ControlPlane<T> {
         }
         pt.close();
 
-        std::cout << "bef while" << std::endl;
         try {
           while (true) {
             auto page = pt.pop();
@@ -921,10 +918,7 @@ class RdmaControlPlane : public ControlPlane<T> {
             }
           }
         } catch (std::exception &) {
-          debout("caught");
         }
-        std::cout << "in while" << std::endl;
-
         // slope::sig::set_active_tracker(nullptr);
         send_imm(final_confirmation_value_,
                  static_cast<uint64_t>(wrid::final_confirmation), peer_qp,

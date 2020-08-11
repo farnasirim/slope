@@ -12,8 +12,17 @@
 #  define deb2(x, y) std::cout << #x << ": " << (x) << ", " << #y << ": " << (y) << std::endl
 #  define debout(x) std::cout << x << std::endl
 #  define debline() std::cout << std::endl
-
 #define infoout(x) std::cout << "[INFO]    " << x << std::endl
+#else
+#define NOOP \
+  do {       \
+  } while (0)
+#define deb(x) NOOP
+#define deb2(x, y) NOOP
+#define debout(x) NOOP
+#define debline() NOOP
+#define infoout(x) NOOP
+#endif  // SLOPE_DEBUG
 
 template<typename T, typename T2>
 std::ostream& operator<<(std::ostream& os, const std::pair<T, T2>& p) {
@@ -71,12 +80,6 @@ std::ostream& operator<<(std::ostream& os, const std::set<T, Alloc>& v) {
     std::abort(); \
   } \
 } while(false);
-
-#else
-#  define deb(x) do { } while(0);
-#  define debout(x) do { } while(0);
-#  define debline() do { } while(0);
-#endif  // SLOPE_DEBUG
 
 #define prompt(x) do { \
   std::string _; \

@@ -42,11 +42,8 @@ void testdrive_migrate(typename
       out << " " << it.second;
       debout(out.str());
     }
-    std::cout << "vector contents:" << std::endl;
-    for(auto it: *ptr.get()) {
-      std::cout << it << " ";
-    }
-    std::cout << std::endl;
+    debout("vector contents:");
+    deb(*ptr.get());
 
     debout("start the migration");
     deb(control_plane->cluster_nodes());
@@ -73,12 +70,9 @@ void testdrive_migrate(typename
           out << " " << it.second;
           debout(out.str());
         }
-        std::cout << "vector contents:" << std::endl;
+        debout("vector contents:");
         deb((*migrated_ptr.get()).size());
-        for(auto it: *migrated_ptr.get()) {
-          std::cout << it << " ";
-        }
-        std::cout << std::endl;
+        deb(*migrated_ptr.get());
         break;
       }
     }

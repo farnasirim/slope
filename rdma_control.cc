@@ -47,6 +47,8 @@ void from_json(const json& j, NodeInfo& inf) noexcept {
   j.at("qp_sets").get_to(inf.qp_sets_);
 }
 
+QpInfo::QpInfo() = default;
+
 QpInfo::QpInfo(short unsigned int host_port_lid_v, unsigned int host_qp_num_v,
     const std::string& host_node_id_v, const std::string& remote_end_node_id_v):
   host_port_lid(host_port_lid_v),

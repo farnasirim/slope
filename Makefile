@@ -14,14 +14,14 @@ CXX_WARNINGS=-pedantic -Wall -Wextra -Wcast-align -Wcast-qual \
 	-Wsign-conversion -Wsign-promo \
 	-Wstrict-overflow=2 -Wswitch-default -Wundef -Werror -Wno-unused \
 	-Wall -Wextra -Wformat-nonliteral -Wcast-align -Wpointer-arith \
-	-Wmissing-declarations -Winline -Wundef -Wcast-qual \
+	-Wmissing-declarations -Wundef -Wcast-qual \
 	-Wshadow -Wwrite-strings -Wno-unused-parameter -Wfloat-equal \
 	-pedantic
 
 
 CXX_FLAGS := -std=c++17
-# CXX_FLAGS += -O3
-CXX_FLAGS += -DSLOPE_DEBUG -g3
+# CXX_FLAGS += -DSLOPE_DEBUG
+CXX_FLAGS += -O2
 
 %.o: %.cc $(CXX_HEADERS) Makefile
 	$(CXX) $(CXX_FLAGS) $(CXX_WARNINGS) $(CXX_INCLUDE) -MMD -MP -c -o $@ $<
