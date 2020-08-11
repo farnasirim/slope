@@ -50,7 +50,7 @@ class PriorityChannel {
   void push(T&& val) {
     {
       std::lock_guard<std::mutex> lk(m_);
-      // q_.insert(std::forward<T>(val));
+      q_.insert(std::forward<T>(val));
     }
     cv_.notify_one();
   }

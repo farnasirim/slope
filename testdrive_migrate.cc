@@ -54,9 +54,9 @@ void testdrive_migrate(typename
     auto operation =
       control_plane->init_migration(control_plane->cluster_nodes()[1], ptr);
     // use ptr without alloc/dealloc
-    // for (unsigned int i = 1; i < 1e8; i++) {
-    //   (*ptr.get())[0] = 10;
-    // }
+    for (unsigned int i = 1; i < 1e8; i++) {
+      (*ptr.get())[0] = 10;
+    }
     operation->commit();
   } else {
     // control_plane->simple_recv();

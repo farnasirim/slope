@@ -57,14 +57,16 @@ void handler(int signo, siginfo_t *info, void *context) {
     page_cv.notify_all();
     return;
   } else if (active_tracker != nullptr) {
-    // active_tracker->prioritize(page);
+    active_tracker->prioritize(page);
   } else {
     ;
   }
   global_lock.unlock();
 }
 
-bool is_dirty(uintptr_t page) { return is_page_dirty[page]; }
+bool is_dirty(uintptr_t page) {
+  return is_page_dirty[page];
+}
 
 void remove_dirty_detection(uintptr_t page) {
   locks.clear();
@@ -109,6 +111,7 @@ void install_sigsegv_handler() {
 }
 
 void set_active_tracker(slope::ds::PageTracker *tracker) {
+  std::lock_guard<std::mutex> lk(global_lock);
   active_tracker = tracker;
 }
 

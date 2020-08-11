@@ -12,7 +12,7 @@ Page::Page(uintptr_t addr_, uint32_t sz_, uint32_t lkey_, uint32_t remote_rkey_)
     : addr(addr_), sz(sz_), lkey(lkey_), remote_rkey(remote_rkey_) {}
 
 void PageTracker::add(Page p) {
-  std::lock_guard lk(m_);
+  std::lock_guard<std::mutex> lk(m_);
   if (page_states.find(p.addr) == page_states.end()) {
     page_states[p.addr] = PageTracker::PageState::awaiting;
     addr_to_page[p.addr] = p;
@@ -33,8 +33,8 @@ void PageTracker::prioritize(uintptr_t addr) {
 }
 
 Page PageTracker::pop() {
-  std::lock_guard lk(m_);
   auto [_, page_addr] = channel_.block_to_pop();
+  std::lock_guard lk(m_);
   if (page_states[page_addr] == PageTracker::PageState::finalized) {
     return pop();
   }

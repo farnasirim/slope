@@ -847,7 +847,7 @@ class RdmaControlPlane : public ControlPlane<T> {
         }
       }
 
-      std::thread([this, peer_qp, mrs = std::move(mrs), pages] {
+      joiner_.add(std::thread([this, peer_qp, mrs = std::move(mrs), pages] {
         for (auto &it : mrs) {
           deb(it.get()->addr);
           deb(it.get()->rkey);
@@ -925,11 +925,12 @@ class RdmaControlPlane : public ControlPlane<T> {
         }
         std::cout << "in while" << std::endl;
 
-        slope::sig::set_active_tracker(nullptr);
+        // slope::sig::set_active_tracker(nullptr);
         send_imm(final_confirmation_value_,
                  static_cast<uint64_t>(wrid::final_confirmation), peer_qp,
                  do_migrate_cq_.get());
-      }).join();
+      }));
+      debout("before ret raw");
 
       return mig_ptr<T>::adopt(raw);
     }
