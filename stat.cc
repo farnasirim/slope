@@ -9,6 +9,10 @@ namespace slope {
 namespace stat {
 
 static std::unordered_map<std::string, std::vector<LogEntry>> logs;
+static std::unordered_map<std::string,
+                          std::unordered_map<std::string, LogEntry>>
+    meta;
+
 static std::mutex lk;
 
 LogEntry::LogEntry(const std::string& value_):
@@ -21,12 +25,20 @@ void add_value(const std::string& key, const std::string& val) {
   logs[key].emplace_back(val);
 }
 
+void set_meta(const std::string& key, const std::string& val) {
+  std::lock_guard<std::mutex> _(lk);
+  meta[key::meta].emplace(key, LogEntry(val));
+}
+
 void to_json(json& j, const LogEntry& e) noexcept {
   j = json{{"nanos", e.relative_timestamp.count()}, {"value", e.value}};
 }
 
 json get_all_logs() {
-  return json(logs);
+  return json{
+      {"time_series", logs},
+      {"meta", meta},
+  };
 }
 
 namespace key {

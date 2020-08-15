@@ -146,7 +146,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
       assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
       if (ret_poll_cq > 0) {
-        assert_p(wc[0].status == 0, "ibv_poll_cq");
+        assert_ibv_completion(wc[0].status);
         assert(wc[0].wr_id == 12212);
         debout("got nudge");
         deb(ntohl(wc[0].imm_data));
@@ -173,7 +173,7 @@ class RdmaControlPlane : public ControlPlane<T> {
     while (true) {
       int ret = ibv_poll_cq(cq, 1, completions);
       if (ret > 0) {
-        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        assert_ibv_completion(completions[0].status);
         assert(completions[0].wr_id == 12212);
         break;
       }
@@ -197,7 +197,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
       assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
       if (ret_poll_cq > 0) {
-        assert_p(wc[0].status == 0, "ibv_poll_cq");
+        assert_ibv_completion(wc[0].status);
         assert(wc[0].wr_id == 12212);
         debout("got nudge");
         deb(ntohl(wc[0].imm_data));
@@ -234,7 +234,7 @@ class RdmaControlPlane : public ControlPlane<T> {
     while (true) {
       int ret = ibv_poll_cq(cq, 1, completions);
       if (ret > 0) {
-        assert_p(completions[0].status == 0, "ibv_poll_cq");
+        assert_ibv_completion(completions[0].status);
         assert(completions[0].wr_id == 12212);
         break;
       }
@@ -267,7 +267,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
       assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
       if (ret_poll_cq > 0) {
-        assert_p(wc[0].status == 0, "ibv_poll_cq");
+        assert_ibv_completion(wc[0].status);
         assert(wc[0].wr_id == wrid);
         break;
       }
@@ -361,11 +361,11 @@ class RdmaControlPlane : public ControlPlane<T> {
               }
               sig::remove_dirty_detection(it.first);
             }
+            deb(dirty_pages.size());
 
             send_imm(static_cast<uint32_t>(dirty_pages.size()),
                      static_cast<uint64_t>(wrid::dirty_pages_count), dest_qp,
                      do_migrate_cq_.get());
-            deb(static_cast<int>(dirty_pages.empty()));
             if (!dirty_pages.empty()) {
               send_vector(dirty_pages, static_cast<uint64_t>(wrid::dirty_pages),
                           dest_qp, do_migrate_cq_.get());
@@ -523,7 +523,7 @@ class RdmaControlPlane : public ControlPlane<T> {
             time_points.push_back(
                 std::chrono::high_resolution_clock::now() -
                 std::chrono::microseconds(ntohl(completions[0].imm_data)));
-            assert_p(completions[0].status == 0, "ibv_poll_cq");
+            assert_ibv_completion(completions[0].status);
             break;
           }
         }
@@ -543,7 +543,7 @@ class RdmaControlPlane : public ControlPlane<T> {
           struct ibv_wc completions[1];
           int ret = ibv_poll_cq(cq.get(), 1, completions);
           if (ret > 0) {
-            assert_p(completions[0].status == 0, "ibv_poll_cq");
+            assert_ibv_completion(completions[0].status);
             break;
           }
         }
@@ -593,7 +593,7 @@ class RdmaControlPlane : public ControlPlane<T> {
             struct ibv_wc completions[1];
             int ret = ibv_poll_cq(cq.get(), 1, completions);
             if (ret > 0) {
-              assert_p(completions[0].status == 0, "ibv_poll_cq");
+              assert_ibv_completion(completions[0].status);
               break;
             }
           }
@@ -602,7 +602,7 @@ class RdmaControlPlane : public ControlPlane<T> {
             struct ibv_wc completions[1];
             int ret = ibv_poll_cq(cq.get(), 1, completions);
             if (ret > 0) {
-              assert_p(completions[0].status == 0, "ibv_poll_cq");
+              assert_ibv_completion(completions[0].status);
               break;
             }
           }
@@ -661,7 +661,7 @@ class RdmaControlPlane : public ControlPlane<T> {
           int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
           assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
           if (ret_poll_cq > 0) {
-            assert_p(wc[0].status == 0, "ibv_poll_cq");
+            assert_ibv_completion(wc[0].status);
             assert(wc[0].wr_id == wrid);
             break;
           }
@@ -684,10 +684,11 @@ class RdmaControlPlane : public ControlPlane<T> {
       assert_p(ret_post_send == 0, "ibv_post_send");
       struct ibv_wc completions[1];
 
+
       while (true) {
         int ret = ibv_poll_cq(cq, 1, completions);
         if (ret > 0) {
-          assert_p(completions[0].status == 0, "ibv_poll_cq");
+          assert_ibv_completion(completions[0].status);
           assert(completions[0].wr_id == wrid);
           break;
         }
@@ -707,7 +708,7 @@ class RdmaControlPlane : public ControlPlane<T> {
         int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
         assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
         if (ret_poll_cq > 0) {
-          assert_p(wc[0].status == 0, "ibv_poll_cq");
+          assert_ibv_completion(wc[0].status);
           assert(wc[0].wr_id == wrid);
           return ntohl(wc[0].imm_data);
           break;
@@ -744,7 +745,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       while (true) {
         int ret = ibv_poll_cq(cq, 1, completions);
         if (ret > 0) {
-          assert_p(completions[0].status == 0, "ibv_poll_cq");
+          assert_ibv_completion(completions[0].status);
           assert(completions[0].wr_id == wrid);
           break;
         }
@@ -807,7 +808,7 @@ class RdmaControlPlane : public ControlPlane<T> {
           assert_p(chunks_ret_poll_cq >= 0 && chunks_ret_poll_cq <= 1,
                    "ibv_poll_cq");
           if (chunks_ret_poll_cq > 0) {
-            assert_p(chunks_completions[0].status == 0, "ibv_poll_cq");
+            assert_ibv_completion(chunks_completions[0].status);
             assert(chunks_completions[0].wr_id == chunks_info_wrid_);
             break;
           }
@@ -1034,7 +1035,7 @@ class RdmaControlPlane : public ControlPlane<T> {
         while (true) {
           int poll_cq_ret = ibv_poll_cq(cq, 1, completions);
           if (poll_cq_ret > 0) {
-            assert_p(completions[0].status == 0, "ibv_poll_cq");
+            assert_ibv_completion(completions[0].status);
             then = std::chrono::system_clock::now();
             break;
           }
@@ -1130,7 +1131,7 @@ class RdmaControlPlane : public ControlPlane<T> {
           deb(ret_poll_cq);
           assert_p(ret_poll_cq >= 0, "ibv_poll_cq");
           if (ret_poll_cq > 0) {
-            assert_p(completions[0].status == 0, "ibv_poll_cq");
+            assert_ibv_completion(completions[0].status);
             then = std::chrono::system_clock::now();
             break;
           }
@@ -1215,7 +1216,7 @@ class RdmaControlPlane : public ControlPlane<T> {
         while (true) {
           int ret = ibv_poll_cq(cq.get(), 1, completions);
           if (ret > 0) {
-            assert_p(completions[0].status == 0, "ibv_poll_cq");
+            assert_ibv_completion(completions[0].status);
             break;
           }
         }
@@ -1268,7 +1269,7 @@ class RdmaControlPlane : public ControlPlane<T> {
         while (true) {
           int ret = ibv_poll_cq(cq.get(), 1, completions);
           if (ret > 0) {
-            assert_p(completions[0].status == 0, "ibv_poll_cq");
+            assert_ibv_completion(completions[0].status);
             assert(completions[0].wr_id == chunks_info_wrid_);
             break;
           }

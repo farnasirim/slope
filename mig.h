@@ -56,6 +56,14 @@ class mig_ptr {
     return outer_allocator.get_pages(ptr);
   }
 
+  int collect_pages() const __attribute__((noinline)) {
+    asm("");
+    unsigned char acc = 0;
+    for (auto page : slope::alloc::chunks_to_pages(get_pages())) {
+      acc ^= *reinterpret_cast<char *>(reinterpret_cast<void *>(page.first));
+    }
+    return acc;
+  }
 
   ~mig_ptr() {
     // TODO: ?

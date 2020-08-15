@@ -1,7 +1,10 @@
 #ifndef SLOPE_DEBUG_H_
 #define SLOPE_DEBUG_H_
 
+#include <errno.h>
+
 #include <algorithm>
+#include <cstdio>
 #include <iostream>
 #include <map>
 #include <set>
@@ -74,12 +77,21 @@ std::ostream& operator<<(std::ostream& os, const std::set<T, Alloc>& v) {
   return os;
 }
 
-#define assert_p(cond, msg) do { \
-  if(!(cond)) { \
-    perror(msg); \
-    std::abort(); \
-  } \
-} while(false);
+#define assert_p(cond, msg) \
+  do {                      \
+    if (!(cond)) {          \
+      perror(msg);          \
+      std::abort();         \
+    }                       \
+  } while (false);
+
+#define assert_ibv_completion(status)                                    \
+  do {                                                                   \
+    if (status) {                                                        \
+      std::cerr << "[" << __FILE__ << ":" << __LINE__ << " " << __func__ \
+                << "] " << ibv_wc_status_str(status) << std::endl;       \
+    }                                                                    \
+  } while (false)
 
 #define prompt(x) do { \
   std::string _; \

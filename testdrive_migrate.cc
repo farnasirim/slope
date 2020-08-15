@@ -6,7 +6,6 @@
 
 #include "ib.h"
 #include "ib_container.h"
-#include "logging.h"
 #include "modify_qp.h"
 
 #include "debug.h"
@@ -62,7 +61,7 @@ void testdrive_migrate(typename
       debout("null");
       if (migrated_ptr.get() != nullptr) {
         debout("returned");
-        deb(*migrated_ptr.get());
+        // deb((*migrated_ptr.get()));
         for(auto it: migrated_ptr.get_pages()) {
           std::stringstream out;
           out << std::showbase << std::internal << std::setfill('0')
@@ -71,8 +70,9 @@ void testdrive_migrate(typename
           debout(out.str());
         }
         debout("vector contents:");
-        deb((*migrated_ptr.get()).size());
         deb(*migrated_ptr.get());
+        deb((*migrated_ptr.get()).size());
+        migrated_ptr.collect_pages();
         break;
       }
     }
