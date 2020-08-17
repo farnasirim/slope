@@ -5,6 +5,7 @@
 #include <malloc.h>
 
 #include <cassert>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -84,11 +85,20 @@ struct Page {
 
 class TwoStepMigrationOperation : public MigrationOperation {
  public:
-  virtual void commit();
-  TwoStepMigrationOperation(std::shared_ptr<std::mutex> m, std::thread t);
+  bool try_commit() override;
+  TwoStepMigrationOperation(std::shared_ptr<std::mutex> m,
+                            std::shared_ptr<int> ready_state,
+                            std::shared_ptr<std::condition_variable> cv,
+                            std::thread t);
+
+  void collect() override;
+  ~TwoStepMigrationOperation();
 
  private:
   std::shared_ptr<std::mutex> m_;
+  std::shared_ptr<int> ready_state_;
+  std::shared_ptr<std::condition_variable> cv_;
+
   std::thread t_;
 };
 
@@ -313,15 +323,24 @@ class RdmaControlPlane : public ControlPlane<T> {
                                                "0", "1")) {
         return nullptr;
       }
+      slope::stat::add_value(slope::stat::key::operation,
+                             "start init_migration");
       auto chunks = target_object.get_pages();
 
-      std::shared_ptr<std::mutex> m = std::make_shared<std::mutex>();
-      m->lock();
+      auto ready_state_mutex = std::make_shared<std::mutex>();
+      std::shared_ptr<int> ready_state = std::make_shared<int>();
+      *ready_state = 0;
+      auto ready_state_cv = std::make_shared<std::condition_variable>();
+
       return std::make_unique<TwoStepMigrationOperation>(
-          m, std::thread([this, dest, chunks, m] {
+          ready_state_mutex, ready_state, ready_state_cv,
+          std::thread([this, dest, chunks, ready_state_mutex, ready_state,
+                       ready_state_cv] {
             std::lock_guard<std::mutex> polling_guard(
                 control_plane_polling_lock_);
             auto remote_rkeys = start_migrate_ping_pong(dest, chunks);
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "got destination rkeys");
             auto pages = slope::alloc::chunks_to_pages(chunks);
             assert(pages.size() == remote_rkeys.size());
             auto dest_qp =
@@ -347,8 +366,26 @@ class RdmaControlPlane : public ControlPlane<T> {
                          static_cast<uint64_t>(wrid::prefill_page), cq.get());
               sig::finish_transfer(page.first);
             }
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "finish prefill");
 
-            m->lock();
+            debout("will try the lock");
+            {
+              std::lock_guard<std::mutex> lk(*ready_state_mutex);
+              debout("in lock");
+              *ready_state = 1;
+            }
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "ready to commit");
+            {
+              std::unique_lock<std::mutex> ul(*ready_state_mutex);
+              debout("will wait for 2");
+              ready_state_cv->wait(
+                  ul, [&ready_state] { return *ready_state == 2; });
+              debout("got to 2");
+            }
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "object locked - proceed to commit");
             // TODO: get dirty pages
             std::vector<Page> dirty_pages;
             std::vector<IbvRegMr> dirty_mrs;
@@ -362,6 +399,10 @@ class RdmaControlPlane : public ControlPlane<T> {
               sig::remove_dirty_detection(it.first);
             }
             deb(dirty_pages.size());
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "got dirty pages");
+            slope::stat::set_meta(slope::stat::metakey::num_dirty_pages,
+                                  std::to_string(dirty_pages.size()));
 
             send_imm(static_cast<uint32_t>(dirty_pages.size()),
                      static_cast<uint64_t>(wrid::dirty_pages_count), dest_qp,
@@ -382,10 +423,17 @@ class RdmaControlPlane : public ControlPlane<T> {
               send_vector(dirty_rkeys, static_cast<uint64_t>(wrid::dirty_rkeys),
                           dest_qp, do_migrate_cq_.get());
             }
+            slope::stat::add_value(
+                slope::stat::key::operation,
+                "hand over the ownership to the destination");
 
             assert(final_confirmation_value_ ==
                    recv_imm(static_cast<uint64_t>(wrid::final_confirmation),
                             dest_qp, do_migrate_cq_.get()));
+
+            slope::stat::add_value(
+                slope::stat::key::operation,
+                "final confirmation received from the destination");
 
             // for(auto& chunk: chunks) {
             //   deb(chunk);
@@ -396,7 +444,7 @@ class RdmaControlPlane : public ControlPlane<T> {
             // }
 
             // transfer_ownership_ping_pong(dest, chunks);
-            m->unlock();
+            ready_state_mutex->unlock();
 
             assert(keyvalue_service_->compare_and_swap(
                 migrate_in_progress_cas_name_, "1", "0"));
@@ -769,6 +817,10 @@ class RdmaControlPlane : public ControlPlane<T> {
         deb(do_migrate_req_.number_of_chunks);
         peer_index = ntohl(completions[0].imm_data);
       }
+
+      slope::stat::add_value(slope::stat::key::operation,
+                             "received migration request from source");
+
       deb(peer_index);
       ibv_qp *peer_qp = fullmesh_qps_[shared_address_qps_key_]
                             .qps_[cluster_nodes_[peer_index]]
@@ -814,6 +866,9 @@ class RdmaControlPlane : public ControlPlane<T> {
           }
         }
       }
+
+      slope::stat::add_value(slope::stat::key::operation,
+                             "received object memory address ranges");
 
       std::vector<slope::alloc::memory_chunk> chunks;
       for (auto [addr, sz] : chunks_info) {
@@ -877,6 +932,9 @@ class RdmaControlPlane : public ControlPlane<T> {
               peer_qp, do_migrate_cq_.get());
         }
 
+        slope::stat::add_value(slope::stat::key::operation,
+                               "received ownership");
+
         size_t dirty_page_index = 0;
         slope::ds::PageTracker pt;
         slope::sig::set_active_tracker(&pt);
@@ -927,6 +985,8 @@ class RdmaControlPlane : public ControlPlane<T> {
       }));
       debout("before ret raw");
 
+      slope::stat::add_value(slope::stat::key::operation,
+                             "returning object, ready to be referenced");
       return mig_ptr<T>::adopt(raw);
     }
 

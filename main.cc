@@ -89,8 +89,8 @@ int main(int argc, char **argv) {
             std::make_unique<slope::keyvalue::Memcached>(memcached_confstr),
             "SLOPE_TIMECALIB_"),
         1);
-    slope::logging::log("finish time calibration");
   }
+  slope::stat::set_meta(slope::stat::metakey::node_name, self_id);
 
   auto kv = std::make_unique<slope::keyvalue::Memcached>(memcached_confstr);
   auto slope_kv = std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(

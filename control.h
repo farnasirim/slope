@@ -13,7 +13,8 @@ namespace control {
 class MigrationOperation {
  public:
   using ptr = std::unique_ptr<MigrationOperation>;
-  virtual void commit() = 0;
+  virtual bool try_commit() = 0;
+  virtual void collect() = 0;
 };
 
 template<typename T>

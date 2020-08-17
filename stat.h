@@ -30,17 +30,18 @@ json get_all_logs();
 
 namespace key {
 const std::string operation = "operation";
-const std::string meta = "logging";
 const std::string warn = "warning";
 const std::string log = "logging";
 }  // namespace key
 
 namespace metakey {
 const std::string workload_name = "workload_name";
+const std::string node_name = "node_name";
+const std::string num_dirty_pages = "num_dirty_pages";
 }  // namespace metakey
 
 namespace value{
-const std::string done_time_calibrate = "done_time_calibrate";
+const std::string done_time_calibrate = "finished time calibration";
 }  // namespace value
 
 }  // namespace time

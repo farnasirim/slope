@@ -50,10 +50,16 @@ void testdrive_migrate(typename
     auto operation =
       control_plane->init_migration(control_plane->cluster_nodes()[1], ptr);
     // use ptr without alloc/dealloc
-    for (unsigned int i = 1; i < 1e8; i++) {
-      (*ptr.get())[0] = 10;
+    while (true) {
+      for (unsigned int i = 1; i < 1e6; i++) {
+        (*ptr.get())[0] = 10;
+      }
+      // std::cout << "will try commit" << std::endl;
+      if (operation->try_commit()) {
+        break;
+      }
     }
-    operation->commit();
+    operation->collect();
   } else {
     // control_plane->simple_recv();
     while(true) {

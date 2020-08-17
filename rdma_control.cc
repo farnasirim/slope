@@ -22,14 +22,38 @@ namespace control {
 
 using json = nlohmann::json;
 
-void TwoStepMigrationOperation::commit() {
-  m_->unlock();
-  t_.join();
+bool TwoStepMigrationOperation::try_commit() {
+  bool ret = false;
+  {
+    debout("before get lock");
+    std::lock_guard<std::mutex> lk(*m_);
+    debout("got lock");
+    if (*ready_state_ == 1) {
+      *ready_state_ = 2;
+      ret = true;
+    } else if (*ready_state_ == 2) {
+      throw std::exception();
+    }
+  }
+
+  if (ret) {
+    cv_->notify_all();
+  }
+  return ret;
+}
+
+void TwoStepMigrationOperation::collect() { t_.join(); }
+
+TwoStepMigrationOperation::~TwoStepMigrationOperation() {
+  if (t_.joinable()) {
+    t_.join();
+  }
 }
 
 TwoStepMigrationOperation::TwoStepMigrationOperation(
-    std::shared_ptr<std::mutex> m, std::thread t)
-    : m_(m), t_(std::move(t)) {}
+    std::shared_ptr<std::mutex> m, std::shared_ptr<int> ready_state,
+    std::shared_ptr<std::condition_variable> cv, std::thread t)
+    : m_(m), ready_state_(ready_state), cv_(cv), t_(std::move(t)) {}
 
 NodeInfo::NodeInfo(std::string node_id_v,
     const std::map<std::string, std::vector<QpInfo>>& qp_sets):

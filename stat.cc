@@ -9,9 +9,7 @@ namespace slope {
 namespace stat {
 
 static std::unordered_map<std::string, std::vector<LogEntry>> logs;
-static std::unordered_map<std::string,
-                          std::unordered_map<std::string, LogEntry>>
-    meta;
+static std::unordered_map<std::string, LogEntry> meta;
 
 static std::mutex lk;
 
@@ -27,7 +25,7 @@ void add_value(const std::string& key, const std::string& val) {
 
 void set_meta(const std::string& key, const std::string& val) {
   std::lock_guard<std::mutex> _(lk);
-  meta[key::meta].emplace(key, LogEntry(val));
+  meta.emplace(key, LogEntry(val));
 }
 
 void to_json(json& j, const LogEntry& e) noexcept {
