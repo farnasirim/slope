@@ -15,7 +15,7 @@ export peers="--peer=0 --peer=1"
 sleep 1
 
 if [[ x$DEBUG == x ]] ; then
-    ./slope $ID $WORKLOAD --SERVER=$memcached_address $peers
+    ./slope $ID $SLOPE_CMDLINE_OPTIONS --SERVER=$memcached_address $peers
 else
-    gdb --args ./slope $ID $WORKLOAD --SERVER=$memcached_address $peers
+    gdb --args ./slope $ID $SLOPE_CMDLINE_OPTIONS --SERVER=$memcached_address $peers
 fi
