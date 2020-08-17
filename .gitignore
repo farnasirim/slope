@@ -10,3 +10,4 @@ doc/*.toc
 cscope*
 tags
 .gdb_history
+bench-results
