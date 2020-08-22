@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "allocator.h"
+#include "bench_readonly.h"
 #include "debug.h"
 #include "discovery.h"
 #include "ib.h"
@@ -38,26 +39,37 @@ using json = nlohmann::json;
 
 int main(int argc, char **argv) {
   slope::sig::install_sigsegv_handler();
-  if (argc < 5) {
-    std::cerr << "incorrect num args" << std::endl;
-    exit(-1);
-  }
 
-  std::string self_id = argv[1];
-  std::string workload_name = argv[2];
-  char *memcached_confstr = argv[3];
+  std::string self_id;
+  std::string workload_name;
+  std::string memcached_confstr;
 
   std::vector<std::string> peers;
+  std::map<std::string, std::string> params;
 
-  for (int i = 4; i < argc; i++) {
+  std::string param_identifier = "--param=";
+  std::string memcached_confstr_identifier = "--memcached_confstr=";
+  std::string workload_identifier = "--workload=";
+  std::string self_identifier = "--self=";
+  std::string peer_identifier = "--peer=";
+
+  for (int i = 1; i < argc; i++) {
     std::string current_arg = argv[i];
-    std::string peer_arg = "--peer=";
-    if (current_arg.find(peer_arg) == 0) {
-      auto maybe_peer = current_arg.substr(peer_arg.size());
-      if (maybe_peer == self_id) {
-        continue;
-      }
-      peers.push_back(current_arg.substr(peer_arg.size()));
+    if (current_arg.find(peer_identifier) == 0) {
+      auto maybe_peer = current_arg.substr(peer_identifier.size());
+      peers.push_back(current_arg.substr(peer_identifier.size()));
+    } else if (current_arg.find(param_identifier) == 0) {
+      auto kv = current_arg.substr(param_identifier.size());
+      auto key = kv.substr(0, kv.find(":"));
+      auto value = kv.substr(kv.find(":") + 1);
+      params[key] = value;
+    } else if (current_arg.find(memcached_confstr_identifier) == 0) {
+      memcached_confstr =
+          current_arg.substr(memcached_confstr_identifier.size());
+    } else if (current_arg.find(workload_identifier) == 0) {
+      workload_name = current_arg.substr(workload_identifier.size());
+    } else if (current_arg.find(self_identifier) == 0) {
+      self_id = current_arg.substr(self_identifier.size());
     } else {
       slope::logging::warn("unused commandline option: " + current_arg);
     }
@@ -86,13 +98,15 @@ int main(int argc, char **argv) {
     std::make_unique<slope::control::RdmaControlPlane<td_mig_type>>(
         self_id, peers,
         std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
-            std::make_unique<slope::keyvalue::Memcached>(memcached_confstr),
+            std::make_unique<slope::keyvalue::Memcached>(
+                memcached_confstr.c_str()),
             "SLOPE_TIMECALIB_"),
         1);
   }
   slope::stat::set_meta(slope::stat::metakey::node_name, self_id);
 
-  auto kv = std::make_unique<slope::keyvalue::Memcached>(memcached_confstr);
+  auto kv =
+      std::make_unique<slope::keyvalue::Memcached>(memcached_confstr.c_str());
   auto slope_kv = std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
       std::move(kv), "SLOPE_");
   if (workload_name == "migvector") {
@@ -102,6 +116,9 @@ int main(int argc, char **argv) {
             self_id, peers, std::move(slope_kv));
 
     testdrive_migrate(std::move(test_control_plane));
+  } else if (workload_name == "readonly") {
+    slope::stat::set_meta(slope::stat::metakey::workload_name, workload_name);
+    slope::bench::readonly::run(self_id, peers, std::move(slope_kv), params);
   }
 
   std::cout << slope::stat::get_all_logs().dump(4) << std::endl;

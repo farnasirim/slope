@@ -23,6 +23,10 @@ void add_value(const std::string& key, const std::string& val) {
   logs[key].emplace_back(val);
 }
 
+void set_param_meta(const std::string& key, const std::string& val) {
+  set_meta("param_" + key, val);
+}
+
 void set_meta(const std::string& key, const std::string& val) {
   std::lock_guard<std::mutex> _(lk);
   meta.emplace(key, LogEntry(val));

@@ -20,7 +20,7 @@ CXX_WARNINGS=-pedantic -Wall -Wextra -Wcast-align -Wcast-qual \
 
 
 CXX_FLAGS := -std=c++17
-# CXX_FLAGS += -DSLOPE_DEBUG
+CXX_FLAGS += -DSLOPE_DEBUG
 CXX_FLAGS += -O2
 
 %.o: %.cc $(CXX_HEADERS) Makefile

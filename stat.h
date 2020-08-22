@@ -26,6 +26,8 @@ void to_json(json& j, const LogEntry& e) noexcept;
 void add_value(const std::string& key, const std::string& val);
 void set_meta(const std::string& key, const std::string& val);
 
+void set_param_meta(const std::string& key, const std::string& val);
+
 json get_all_logs();
 
 namespace key {
@@ -38,6 +40,7 @@ namespace metakey {
 const std::string workload_name = "workload_name";
 const std::string node_name = "node_name";
 const std::string num_dirty_pages = "num_dirty_pages";
+const std::string num_pages = "num_pages";
 }  // namespace metakey
 
 namespace value{

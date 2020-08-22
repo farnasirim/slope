@@ -342,6 +342,8 @@ class RdmaControlPlane : public ControlPlane<T> {
             slope::stat::add_value(slope::stat::key::operation,
                                    "got destination rkeys");
             auto pages = slope::alloc::chunks_to_pages(chunks);
+            slope::stat::set_meta(slope::stat::metakey::num_pages,
+                                  std::to_string(pages.size()));
             assert(pages.size() == remote_rkeys.size());
             auto dest_qp =
                 fullmesh_qps_[shared_address_qps_key_].qps_[dest].get()->get();
@@ -987,6 +989,7 @@ class RdmaControlPlane : public ControlPlane<T> {
 
       slope::stat::add_value(slope::stat::key::operation,
                              "returning object, ready to be referenced");
+      debout("calling adopt");
       return mig_ptr<T>::adopt(raw);
     }
 
