@@ -28,13 +28,15 @@ void testdrive_migrate(typename
     {
       debout("acquiring a context for adding elements to the vector");
       auto lock = ptr.create_context();
-      for (int i = 0; i < 10; i++) {
-        ptr.get()->push_back(i);
-      }
+      ptr.get()->resize(10);
+      // for (int i = 0; i < 10; i++) {
+      //   ptr.get()->push_back(i);
+      // }
     }
+    std::iota(ptr.get()->begin(), ptr.get()->end(), 0);
 
     deb(*ptr.get());
-    for(auto it: ptr.get_pages()) {
+    for (auto it : ptr.get_chunks()) {
       std::stringstream out;
       out << std::showbase << std::internal << std::setfill('0')
           << " @" << std::hex << std::setw(16) << it.first;
@@ -68,7 +70,7 @@ void testdrive_migrate(typename
       if (migrated_ptr.get() != nullptr) {
         debout("returned");
         // deb((*migrated_ptr.get()));
-        for(auto it: migrated_ptr.get_pages()) {
+        for (auto it : migrated_ptr.get_chunks()) {
           std::stringstream out;
           out << std::showbase << std::internal << std::setfill('0')
               << " @" << std::hex << std::setw(16) << it.first;

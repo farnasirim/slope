@@ -105,7 +105,11 @@ struct FixedPoolAllocator {
   template <class U> constexpr FixedPoolAllocator(
       const FixedPoolAllocator<U>&) noexcept {}
 
-  static std::vector<memory_chunk> get_pages(const T* ptr) {
+  static std::vector<memory_chunk> get_4k_pages(const T* ptr) {
+    return chunks_to_pages(get_chunks(ptr));
+  }
+
+  static std::vector<memory_chunk> get_chunks(const T* ptr) {
     auto& segments = object_allocations[reinterpret_cast<uintptr_t>(ptr)];
     return std::vector<memory_chunk>(segments.begin(), segments.end());
   }

@@ -51,15 +51,20 @@ class mig_ptr {
     return alloc::allocator_instance<T>().create_context(ptr);
   }
 
-  std::vector<alloc::memory_chunk> get_pages() const {
+  std::vector<alloc::memory_chunk> get_4k_pages() const {
     auto& outer_allocator = alloc::allocator_instance<T>();
-    return outer_allocator.get_pages(ptr);
+    return outer_allocator.get_4k_pages(ptr);
+  }
+
+  std::vector<alloc::memory_chunk> get_chunks() const {
+    auto& outer_allocator = alloc::allocator_instance<T>();
+    return outer_allocator.get_chunks(ptr);
   }
 
   int collect_pages() const __attribute__((noinline)) {
     asm("");
     unsigned char acc = 0;
-    for (auto page : slope::alloc::chunks_to_pages(get_pages())) {
+    for (auto page : get_4k_pages()) {
       acc ^= *reinterpret_cast<char *>(reinterpret_cast<void *>(page.first));
     }
     return acc;

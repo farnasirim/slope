@@ -325,7 +325,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       }
       slope::stat::add_value(slope::stat::key::operation,
                              "start init_migration");
-      auto chunks = target_object.get_pages();
+      auto chunks = target_object.get_chunks();
 
       auto ready_state_mutex = std::make_shared<std::mutex>();
       std::shared_ptr<int> ready_state = std::make_shared<int>();

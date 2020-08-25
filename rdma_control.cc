@@ -25,9 +25,7 @@ using json = nlohmann::json;
 bool TwoStepMigrationOperation::try_commit() {
   bool ret = false;
   {
-    debout("before get lock");
     std::lock_guard<std::mutex> lk(*m_);
-    debout("got lock");
     if (*ready_state_ == 1) {
       *ready_state_ = 2;
       ret = true;
