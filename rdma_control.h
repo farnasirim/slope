@@ -984,6 +984,8 @@ class RdmaControlPlane : public ControlPlane<T> {
         send_imm(final_confirmation_value_,
                  static_cast<uint64_t>(wrid::final_confirmation), peer_qp,
                  do_migrate_cq_.get());
+        slope::stat::add_value(slope::stat::key::operation,
+                               "sent final confirmation to source");
       }));
       debout("before ret raw");
 

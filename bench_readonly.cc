@@ -50,9 +50,10 @@ void run(std::string self_id, std::vector<std::string> peers,
 
     debout("start the migration");
     deb(cp->cluster_nodes());
-    slope::stat::add_value(slope::stat::key::operation, "init_migration");
+    slope::stat::add_value(slope::stat::key::operation, "call init_migration");
     auto operation = cp->init_migration(cp->cluster_nodes()[1], ptr);
-    slope::stat::add_value(slope::stat::key::operation, "start try_commit");
+    slope::stat::add_value(slope::stat::key::operation,
+                           "start calling try_commit");
     while (true) {
       if (operation->try_commit()) {
         break;
@@ -70,6 +71,7 @@ void run(std::string self_id, std::vector<std::string> peers,
         debout("returned");
         deb((*migrated_ptr.get()));
         slope::stat::add_value(slope::stat::key::operation, "got ptr");
+#ifdef SLOPE_DEBUG
         for (auto it : migrated_ptr.get_chunks()) {
           std::stringstream out;
           out << std::showbase << std::internal << std::setfill('0') << " @"
@@ -77,6 +79,7 @@ void run(std::string self_id, std::vector<std::string> peers,
           out << " " << it.second;
           debout(out.str());
         }
+#endif
         slope::stat::add_value(slope::stat::key::operation,
                                "called collect_pages");
         migrated_ptr.collect_pages();
