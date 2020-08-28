@@ -11,3 +11,5 @@ cscope*
 tags
 .gdb_history
 bench-results
+__pycache__
+*.pgf
