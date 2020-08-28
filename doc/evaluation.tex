@@ -13,41 +13,27 @@ calculating the median among multiple round trip time calculations. Round
 trip times are approximately $5 {\mu}{s}$, a pessimistic upper bound for the
 error in time synchronization.
 
-\section{Measuring the change in application performance}
+To make sure our graphs are accurate, we run each configuration at least 5 times
+and average out the results, and in some cases, drop the min and max values to
+eliminate the outlying points. That means each point in each of our graphs is
+the resulting value from the above calculation on multiple runs with the same
+configuration. Even without eliminating the outlying points, the standard errors
+of our measurements are negligible (i.e. multiple orders of magnitude smaller)
+compared to the reported values, unless otherwise stated.
+
 Looking at each sub-system in Slope, one can define certain metrics that
-reflect if that sub-system is working efficiently. For example one could
-directly measure the migration delays or allocation tail latencies, but these
-rarely reflect the real effect of the performance of Slope on the application.
-
-We can instead look for metrics which closely related to the performance of
-the applications. Since most applications' performance is
-directly dependent on their throughput and latency, we define two metrics to
-measure in applications to reflect how much overhead Slope introduces in these
-two metrics, while taking into account the migration delay.
-
-\paragraph{Drop in throughput:}
-The amount of throughput that the application loses throughout the migration
-process is an informative metric, but we need to penalize the framework if
-the migration process takes a very long time, even when there is not a
-noticeable drop in throughput during that time. Therefore we measure
-$(steady\ state\ throughput - actual\ throughput) \times \frac{elapsed\ time}{optimal\ time}$, where the optimal time is the time is the minimal time it takes to transfer
-the underlying memory of the object while using the full throughput of the
-data plane with no software overhead.
-
-\paragraph{Latency overhead}
-Looking at the distribution of the latency increases over time, we can
-hypothesize about how Slope impacts application latency. However the volume of
-this data might make it hard to reason about. Therefore we can look at certain
-percentiles (e.g. upper 99 percent) of the absolute latency increases over time,
-and also select percentiles of the percentages of latency increases over time.
-
+reflect if that sub-system is working efficiently. For example we measure
+the elapsed time until the prefill operation completes. We also measure
+other metrics which more directly impact application performance, such as
+end to end migration delay or time during which the object is unusable at
+either end.
 
 \subsection{Migration friendliness of data structures}
 Based on how the migration process and specifically how the prefill operation
-works, objects which are likely to keep their internal memory allocations
-throughout their operations are very good candidates for migration, since they
-can function seamlessly throughout the prefill phase, by only inducing dirty
-page overhead.
+works, objects which use their internal memory in a ``fixed'' manner, that is
+without doing much memory allocation/deallocation, are very good candidates
+for migration, since they can function seamlessly throughout the prefill phase,
+by only inducing dirty page overhead.
 
 Examples of these objects include bloom filters, where we have a fixed
 array of bits the size of which always stays the same.
@@ -58,12 +44,40 @@ Apart from these objects which make the best-case scenario for Slope, we also
 discuss more generic objects whose allocation/deallocation patterns are not
 ideal.
 
-\section{Case study: core metrics}
-In this section we measure the performance of each micro operation in Slope
-while we migrate an artificial object with no particular use.
+\section{Case study: core metrics and STL objects}
+\subsection{Migrating a static vector}
 
-\subsection{Migrating a read-only object}
-plot elapsed times w.r.t. number of pages the object spans
+\begin{figure}[tp]
+    \begin{center}
+        \input{bench-readonly.pgf}
+    \end{center}
+    \caption{Read-only object migration statistics}
+    \label{fig:vectorreadonly}
+\end{figure}
+
+In our simplest example, we create a \texttt{vector}, initialize it with the
+pre-specified size and migrate it to the destination. Approximately $8$ lines
+of code are required on each of the source and destination sides to reproduce
+this operation, excluding lines that serve the purpose of gathering statistics.
+\autoref{fig:vectorreadonly} depicts the results.
+
+Naturally, the prefill phase takes up most of the transfer time, which grows
+linearly by increasing the size of the object. The time it takes to turn over
+the ownership, during which the object is unusable on either side is multiple
+orders of magnitude smaller than the total time migration time.
+It grows faster than linear because we call into the memory allocator
+for each 4KB page. The memory allocator uses a red-black tree internally which
+increases the running time by a factor of $log n$. We also call into the
+operating system through \texttt{mprotect} for each page which contributes
+to the running time.
+
+As discussed previously, these can be optimized out by
+merging adjacent ranges to each other, yielding close to constant running time
+in this case, however we removed this optimization to allow for a better
+comparison to be made with the more complicated (e.g. read-write) cases or
+with read-only scenarios,
+with more realistic allocation/deallocation behaviors, causing fragmentation
+of the object memory.
 
 \subsection{Migrating a write-heavy object}
 while all of its pages are being written to
