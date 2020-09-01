@@ -45,13 +45,14 @@ discuss more generic objects whose allocation/deallocation patterns are not
 ideal.
 
 \section{Case study: core metrics and STL objects}
-\subsection{Migrating a static vector}
+\subsection{Migrating a vector with clean pages}
+\label{sec:cleanvec}
 
 \begin{figure}[tp]
     \begin{center}
         \input{bench-readonly.pgf}
     \end{center}
-    \caption{Read-only object migration statistics}
+    \caption{Migration statistics of a clean vector}
     \label{fig:vectorreadonly}
 \end{figure}
 
@@ -62,12 +63,18 @@ this operation, excluding lines that serve the purpose of gathering statistics.
 \autoref{fig:vectorreadonly} depicts the results.
 
 Naturally, the prefill phase takes up most of the transfer time, which grows
-linearly by increasing the size of the object. The time it takes to turn over
+linearly by increasing the size of the object. The increasing gap between the
+prefill duration and the end to end latency can be attributed to the fact that
+the receiver immediately tries to access the underlying contents of the vector.
+This results in multiple calls to the OS (e.g. \texttt{mprotect}) and into the
+signal handler.
+
+The time it takes to turn over
 the ownership, during which the object is unusable on either side is multiple
 orders of magnitude smaller than the total time migration time.
 It grows faster than linear because we call into the memory allocator
 for each 4KB page. The memory allocator uses a red-black tree internally which
-increases the running time by a factor of $log n$. We also call into the
+increases the running time by a factor of $log(n)$. We also call into the
 operating system through \texttt{mprotect} for each page which contributes
 to the running time.
 
@@ -80,9 +87,31 @@ with more realistic allocation/deallocation behaviors, causing fragmentation
 of the object memory.
 
 \subsection{Migrating a write-heavy object}
-while all of its pages are being written to
+\begin{figure}[tp]
+    \begin{center}
+        \input{bench-writeall.pgf}
+    \end{center}
+    \caption{Migration statistics of a vector with all pages dirty}
+    \label{fig:vectorwriteall}
+\end{figure}
 
-plot elapsed times w.r.t. number of pages the object spans
+In this micro-benchmark, we create a vector, dirty all of its pages after the
+prefill phase has finished, and then finalize the transfer. Compared to the
+clean scenario in \autoref{sec:cleanvec}, we need to spend extra time to
+retransfer the dirty pages. Furthermore, the period during which the object is
+unusable on either side has increased by an order of magnitude, since we need to
+process the dirty page addresses on the receiver side to be able to assign
+correct permissions to them before allowing read/writes to take place against
+them.
+
+Although the same set of pages are sent/received during the prefill phase and
+transferring of the dirty pages, the former takes considerably longer. This is
+largely due to executing a larger number of system calls during the prefill
+phase (e.g. pinning pages to physical memory on both machines). Even though
+RDMA READ is more efficient than RDMA WRITE, their difference is barely
+noticeable in this case, as the number of system calls during the prefill phase
+dominates the running time.
+
 
 \subsection{Migrating an object based on the writes it receives}
 Object size from 10 to ... each of them are rows in the same plot
