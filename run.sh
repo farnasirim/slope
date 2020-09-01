@@ -17,5 +17,5 @@ sleep 1
 if [[ x$DEBUG == x ]] ; then
     ./slope --self=$ID $SLOPE_CMDLINE_OPTIONS --memcached_confstr=--SERVER=$memcached_address $peers
 else
-    gdb --args ./slope --self=$ID $SLOPE_CMDLINE_OPTIONS --memcached_confstr=--SERVER=$memcached_address $peers
+    gdb ./slope -ex 'handle SIGSEGV nostop noprint pass' -ex "set args --self=$ID $SLOPE_CMDLINE_OPTIONS --memcached_confstr=--SERVER=$memcached_address $peers" -ex 'run'
 fi
