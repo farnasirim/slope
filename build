@@ -1,2 +1,2 @@
 #!/bin/bash
-while true ; do x=$(md5sum <(md5sum $(find -maxdepth 1 -type f | sort)) | awk '{ print $1 }'); if [[ $x != $y ]] ; then sleep 1 ; make -j30 || (clear && make) ; echo "done" ; y=$x; fi; sleep 0.1 ; done
+while true ; do x=$(md5sum <(md5sum $(find -maxdepth 1 -type f | egrep './.*\..*' | egrep -v ./\\. | sort)) | awk '{ print $1 }'); if [[ $x != $y ]] ; then  rm ./slope ; sleep 0.1 ; make -j30 || (clear && make) ; echo "done" ; y=$x; fi; sleep 0.1 ; done
