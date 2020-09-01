@@ -14,6 +14,7 @@
 
 #include "allocator.h"
 #include "bench_readonly.h"
+#include "bench_writeall.h"
 #include "debug.h"
 #include "discovery.h"
 #include "ib.h"
@@ -109,16 +110,18 @@ int main(int argc, char **argv) {
       std::make_unique<slope::keyvalue::Memcached>(memcached_confstr.c_str());
   auto slope_kv = std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(
       std::move(kv), "SLOPE_");
+
+  slope::stat::set_meta(slope::stat::metakey::workload_name, workload_name);
   if (workload_name == "migvector") {
-    slope::stat::set_meta(slope::stat::metakey::workload_name, workload_name);
     auto test_control_plane =
         std::make_unique<slope::control::RdmaControlPlane<td_mig_type>>(
             self_id, peers, std::move(slope_kv));
 
     testdrive_migrate(std::move(test_control_plane));
   } else if (workload_name == "readonly") {
-    slope::stat::set_meta(slope::stat::metakey::workload_name, workload_name);
     slope::bench::readonly::run(self_id, peers, std::move(slope_kv), params);
+  } else if (workload_name == "writeall") {
+    slope::bench::writeall::run(self_id, peers, std::move(slope_kv), params);
   }
 
   std::cout << slope::stat::get_all_logs().dump(4) << std::endl;

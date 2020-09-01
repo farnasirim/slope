@@ -35,7 +35,7 @@ class PriorityChannel {
     auto ret = std::move(*q_.begin());
     q_.erase(q_.begin());
     lk.unlock();
-    cv_.notify_one();
+    cv_.notify_all();
     return ret;
   }
 
@@ -44,7 +44,7 @@ class PriorityChannel {
       std::lock_guard<std::mutex> lk(m_);
       is_closed_ = 1;
     }
-    cv_.notify_one();
+    cv_.notify_all();
   }
 
   void push(T&& val) {
@@ -52,7 +52,7 @@ class PriorityChannel {
       std::lock_guard<std::mutex> lk(m_);
       q_.insert(std::forward<T>(val));
     }
-    cv_.notify_one();
+    cv_.notify_all();
   }
 };
 

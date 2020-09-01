@@ -22,6 +22,11 @@ namespace control {
 
 using json = nlohmann::json;
 
+int TwoStepMigrationOperation::get_ready_state() {
+  std::lock_guard<std::mutex> lk(*m_);
+  return *ready_state_;
+}
+
 bool TwoStepMigrationOperation::try_commit() {
   bool ret = false;
   {

@@ -15,6 +15,7 @@ class MigrationOperation {
   using ptr = std::unique_ptr<MigrationOperation>;
   virtual bool try_commit() = 0;
   virtual void collect() = 0;
+  virtual int get_ready_state() = 0;
 };
 
 template<typename T>

@@ -92,6 +92,7 @@ class TwoStepMigrationOperation : public MigrationOperation {
                             std::thread t);
 
   void collect() override;
+  int get_ready_state() override;
   ~TwoStepMigrationOperation();
 
  private:
@@ -392,14 +393,16 @@ class RdmaControlPlane : public ControlPlane<T> {
             std::vector<Page> dirty_pages;
             std::vector<IbvRegMr> dirty_mrs;
             for (auto it : pages) {
+              // deb(it.first);
+              // deb(sig::is_dirty(it.first));
               if (sig::is_dirty(it.first)) {
                 Page p;
                 p.addr = it.first;
                 p.sz = it.second;
                 dirty_pages.push_back(p);
               }
-              sig::remove_dirty_detection(it.first);
             }
+            sig::remove_dirty_detection();
             deb(dirty_pages.size());
             slope::stat::add_value(slope::stat::key::operation,
                                    "got dirty pages");
@@ -721,6 +724,11 @@ class RdmaControlPlane : public ControlPlane<T> {
     }
 
     void send_imm(uint32_t val, uint64_t wrid, ibv_qp * dest_qp, ibv_cq * cq) {
+      debout("Send");
+      deb(val);
+      deb(wrid);
+      debout("");
+
       struct ibv_send_wr *bad_wr;
       struct ibv_send_wr this_wr = {};
       this_wr.wr_id = wrid;
@@ -746,6 +754,10 @@ class RdmaControlPlane : public ControlPlane<T> {
     }
 
     uint32_t recv_imm(uint64_t wrid, ibv_qp * peer_qp, ibv_cq * cq) {
+      debout("Recv");
+      deb(wrid);
+      debout("");
+
       struct ibv_recv_wr *bad_wr;
       struct ibv_recv_wr this_wr = {};
       this_wr.wr_id = wrid;
@@ -905,16 +917,16 @@ class RdmaControlPlane : public ControlPlane<T> {
       }
 
       joiner_.add(std::thread([this, peer_qp, mrs = std::move(mrs), pages] {
-        for (auto &it : mrs) {
-          deb(it.get()->addr);
-          deb(it.get()->rkey);
-        }
+        // for (auto &it : mrs) {
+        //   deb(it.get()->addr);
+        //   deb(it.get()->rkey);
+        // }
 
         std::vector<uint32_t> local_rkeys;
         std::transform(mrs.begin(), mrs.end(), std::back_inserter(local_rkeys),
                        [&](auto &m) { return m.get()->rkey; });
 
-        deb(local_rkeys);
+        // deb(local_rkeys);
         send_vector(local_rkeys, destination_rkeys_wrid_, peer_qp,
                     do_migrate_cq_.get());
 
@@ -952,10 +964,10 @@ class RdmaControlPlane : public ControlPlane<T> {
                                    dirty_pages[dirty_page_index].sz,
                                    mrs[i].get()->lkey,
                                    dirty_rkeys[dirty_page_index]));
-            deb(dirty_pages[dirty_page_index].addr);
-            deb(dirty_pages[dirty_page_index].sz);
-            deb(mrs[i].get()->lkey);
-            deb(dirty_rkeys[dirty_page_index]);
+            // deb(dirty_pages[dirty_page_index].addr);
+            // deb(dirty_pages[dirty_page_index].sz);
+            // deb(mrs[i].get()->lkey);
+            // deb(dirty_rkeys[dirty_page_index]);
             continue;
           }
           if (mprotect(reinterpret_cast<void *>(page.first), page.second,
@@ -981,6 +993,8 @@ class RdmaControlPlane : public ControlPlane<T> {
         } catch (std::exception &) {
         }
         // slope::sig::set_active_tracker(nullptr);
+        slope::stat::add_value(slope::stat::key::operation,
+                               "read all dirty pages");
         send_imm(final_confirmation_value_,
                  static_cast<uint64_t>(wrid::final_confirmation), peer_qp,
                  do_migrate_cq_.get());

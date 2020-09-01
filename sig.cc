@@ -68,7 +68,7 @@ bool is_dirty(uintptr_t page) {
   return is_page_dirty[page];
 }
 
-void remove_dirty_detection(uintptr_t page) {
+void remove_dirty_detection() {
   locks.clear();
   cvs.clear();
   is_page_writable.clear();

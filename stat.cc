@@ -1,9 +1,11 @@
 #include "stat.h"
 
+#include <iostream>
 #include <mutex>
 #include <vector>
 
 #include "cluster_time.h"
+#include "debug.h"
 
 namespace slope {
 namespace stat {
@@ -21,6 +23,7 @@ LogEntry::LogEntry(const std::string& value_):
 void add_value(const std::string& key, const std::string& val) {
   std::lock_guard<std::mutex> _(lk);
   logs[key].emplace_back(val);
+  debout("add: " + key + "=" + val);
 }
 
 void set_param_meta(const std::string& key, const std::string& val) {
@@ -29,6 +32,7 @@ void set_param_meta(const std::string& key, const std::string& val) {
 
 void set_meta(const std::string& key, const std::string& val) {
   std::lock_guard<std::mutex> _(lk);
+  debout("meta: " + key + val);
   meta.emplace(key, LogEntry(val));
 }
 

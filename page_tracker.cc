@@ -34,10 +34,13 @@ void PageTracker::prioritize(uintptr_t addr) {
 
 Page PageTracker::pop() {
   auto [_, page_addr] = channel_.block_to_pop();
-  std::lock_guard lk(m_);
+  m_.lock();
   if (page_states[page_addr] == PageTracker::PageState::finalized) {
+    m_.unlock();
     return pop();
   }
+  m_.unlock();
+  std::lock_guard lk(m_);
   page_states[page_addr] = PageTracker::PageState::finalized;
   return addr_to_page[page_addr];
 }
