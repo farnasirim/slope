@@ -8,12 +8,12 @@ import crunch
 import bench_common
 
 
-def plot_readonly(benches):
+def plot_writeall(benches):
     fig, (sub0, sub1) = plt.subplots(2, 1, figsize=(10, 8))
     fig.set_size_inches(w=settings.plot_width, h=2*settings.plot_width / (16 / 9))
 
     logs_list = list(map(etl.get_merged_logs, benches))
-    required_keys = ["Prefill duration", "Duration without owner", "End to end latency"]
+    required_keys = ["Prefill duration", "Duration without owner", "End to end latency", "Time spent transferring dirty pages"]
     infos = list(map(lambda x: bench_common.get_info(x, required_keys), logs_list))
 
     grouped_info = crunch.group_by(infos, lambda info: info["param_num_pages"],

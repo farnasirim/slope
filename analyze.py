@@ -11,6 +11,7 @@ import pickle
 import etl
 from crunch import *
 from readonly import plot_readonly
+from writeall import plot_writeall
 
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
@@ -32,11 +33,11 @@ def main():
     parser = argparse.ArgumentParser(description='analyze benchmarks')
     parser.add_argument('action', type=str)
     parser.add_argument('--dir', type=str)
+    parser.add_argument('--workload', type=str)
     parser.add_argument('--tag', type=str)
     parser.add_argument('--texname', type=str, default=None)
     args = parser.parse_args()
 
-    print(args.tag)
     benches = etl.get_benches(args.dir, args.tag)
 
     if args.texname:
@@ -48,7 +49,15 @@ def main():
             'pgf.rcfonts': False,
         })
 
-    plot_readonly(benches)
+    if args.action == "plot":
+        if args.workload == "readonly":
+            plot_readonly(benches)
+        elif args.workload == "writeall":
+            plot_writeall(benches)
+        else:
+            assert(False)
+    else:
+        assert(False)
 
     if args.texname:
         plt.savefig(args.texname)
