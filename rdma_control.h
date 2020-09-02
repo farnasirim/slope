@@ -45,6 +45,8 @@ enum class wrid : uint64_t {
   dirty_rkeys,
   read_dirty_page,
   final_confirmation,
+  giveup_ownership,
+  check_bandwidth
 };
 
 struct QpInfo {
@@ -85,7 +87,8 @@ struct Page {
 
 class TwoStepMigrationOperation : public MigrationOperation {
  public:
-  bool try_commit() override;
+  bool try_finish_write() override;
+  bool try_finish_read() override;
   TwoStepMigrationOperation(std::shared_ptr<std::mutex> m,
                             std::shared_ptr<int> ready_state,
                             std::shared_ptr<std::condition_variable> cv,
@@ -285,6 +288,40 @@ class RdmaControlPlane : public ControlPlane<T> {
     }
   }
 
+  void write_segment(uintptr_t page_addr, uint32_t sz, uint32_t lkey,
+                     ibv_qp *qp, uint32_t rkey, uintptr_t raddr, uint64_t wrid,
+                     ibv_cq *cq) {
+    struct ibv_sge sge = {};
+    sge.addr = reinterpret_cast<uintptr_t>(page_addr);
+    sge.length = sz;
+    sge.lkey = lkey;
+
+    struct ibv_send_wr *bad_wr;
+    struct ibv_send_wr this_wr = {};
+
+    this_wr.wr_id = wrid;
+    this_wr.num_sge = 1;
+    this_wr.sg_list = &sge;
+    this_wr.opcode = IBV_WR_RDMA_WRITE;
+    this_wr.send_flags = IBV_SEND_SIGNALED;
+    this_wr.wr.rdma.remote_addr = raddr;
+    this_wr.wr.rdma.rkey = rkey;
+
+    auto ret_send = ibv_post_send(qp, &this_wr, &bad_wr);
+    assert_p(ret_send == 0, "ibv_post_send");
+
+    while (true) {
+      struct ibv_wc wc[1] = {};
+      int ret_poll_cq = ibv_poll_cq(cq, 1, wc);
+      assert_p(ret_poll_cq >= 0 && ret_poll_cq <= 1, "ibv_poll_cq");
+      if (ret_poll_cq > 0) {
+        assert_p(wc[0].status == 0, "ibv_poll_cq");
+        assert(wc[0].wr_id == wrid);
+        break;
+      }
+    }
+  }
+
   void write_page(uintptr_t page_addr, uint32_t sz, uint32_t lkey, ibv_qp *qp,
                   uint32_t rkey, uint64_t wrid, ibv_cq *cq) {
     struct ibv_sge sge = {};
@@ -325,7 +362,7 @@ class RdmaControlPlane : public ControlPlane<T> {
         return nullptr;
       }
       slope::stat::add_value(slope::stat::key::operation,
-                             "start init_migration");
+                             "start: init_migration");
       auto chunks = target_object.get_chunks();
 
       auto ready_state_mutex = std::make_shared<std::mutex>();
@@ -341,7 +378,7 @@ class RdmaControlPlane : public ControlPlane<T> {
                 control_plane_polling_lock_);
             auto remote_rkeys = start_migrate_ping_pong(dest, chunks);
             slope::stat::add_value(slope::stat::key::operation,
-                                   "got destination rkeys");
+                                   "received: destination rkeys");
             auto pages = slope::alloc::chunks_to_pages(chunks);
             slope::stat::set_meta(slope::stat::metakey::num_pages,
                                   std::to_string(pages.size()));
@@ -352,6 +389,8 @@ class RdmaControlPlane : public ControlPlane<T> {
 
             std::vector<IbvRegMr> source_mrs;
 
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "start: prefill writes");
             for (size_t i = 0; i < pages.size(); i++) {
               auto rkey = remote_rkeys[i];
               auto page = pages[i];
@@ -370,7 +409,7 @@ class RdmaControlPlane : public ControlPlane<T> {
               sig::finish_transfer(page.first);
             }
             slope::stat::add_value(slope::stat::key::operation,
-                                   "finish prefill");
+                                   "finish: prefill writes");
 
             debout("will try the lock");
             {
@@ -379,17 +418,17 @@ class RdmaControlPlane : public ControlPlane<T> {
               *ready_state = 1;
             }
             slope::stat::add_value(slope::stat::key::operation,
-                                   "ready to commit");
+                                   "wait: for call to finish writes");
             {
               std::unique_lock<std::mutex> ul(*ready_state_mutex);
-              debout("will wait for 2");
               ready_state_cv->wait(
                   ul, [&ready_state] { return *ready_state == 2; });
-              debout("got to 2");
             }
             slope::stat::add_value(slope::stat::key::operation,
-                                   "object locked - proceed to commit");
-            // TODO: get dirty pages
+                                   "done wait: for call to finish writes");
+
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "start: gathering dirty pages");
             std::vector<Page> dirty_pages;
             std::vector<IbvRegMr> dirty_mrs;
             for (auto it : pages) {
@@ -405,10 +444,12 @@ class RdmaControlPlane : public ControlPlane<T> {
             sig::remove_dirty_detection();
             deb(dirty_pages.size());
             slope::stat::add_value(slope::stat::key::operation,
-                                   "got dirty pages");
+                                   "finish: gathering dirty pages");
             slope::stat::set_meta(slope::stat::metakey::num_dirty_pages,
                                   std::to_string(dirty_pages.size()));
 
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "start: transfer dirty pages");
             send_imm(static_cast<uint32_t>(dirty_pages.size()),
                      static_cast<uint64_t>(wrid::dirty_pages_count), dest_qp,
                      do_migrate_cq_.get());
@@ -428,17 +469,36 @@ class RdmaControlPlane : public ControlPlane<T> {
               send_vector(dirty_rkeys, static_cast<uint64_t>(wrid::dirty_rkeys),
                           dest_qp, do_migrate_cq_.get());
             }
-            slope::stat::add_value(
-                slope::stat::key::operation,
-                "hand over the ownership to the destination");
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "finish: transfer dirty pages");
 
+            {
+              std::lock_guard<std::mutex> lk(*ready_state_mutex);
+              debout("in lock");
+              *ready_state = 3;
+            }
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "wait: for call to finish reads");
+            {
+              std::unique_lock<std::mutex> ul(*ready_state_mutex);
+              ready_state_cv->wait(
+                  ul, [&ready_state] { return *ready_state == 4; });
+            }
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "done wait: for call to finish reads");
+
+            slope::stat::add_value(slope::stat::key::operation,
+                                   "transfer ownership to destination");
+            send_imm(static_cast<uint32_t>(giveup_ownership_value_),
+                     static_cast<uint64_t>(wrid::giveup_ownership), dest_qp,
+                     do_migrate_cq_.get());
             assert(final_confirmation_value_ ==
                    recv_imm(static_cast<uint64_t>(wrid::final_confirmation),
                             dest_qp, do_migrate_cq_.get()));
 
             slope::stat::add_value(
                 slope::stat::key::operation,
-                "final confirmation received from the destination");
+                "received: final confirmation from the destination");
 
             // for(auto& chunk: chunks) {
             //   deb(chunk);
@@ -449,7 +509,33 @@ class RdmaControlPlane : public ControlPlane<T> {
             // }
 
             // transfer_ownership_ping_pong(dest, chunks);
-            ready_state_mutex->unlock();
+            // ready_state_mutex->unlock();
+
+            // {
+            //   size_t sz = 0;
+            //   for (auto &[_, chunk_size] : pages) {
+            //     sz += chunk_size;
+            //   }
+            //   deb(sz);
+            //   std::vector<unsigned char> payload(sz);
+            //   IbvRegMr mmr(global_pd_.get(), payload.data(), sz,
+            //                do_migrate_mr_flags_);
+            //   send_imm(mmr->rkey,
+            //            static_cast<uint64_t>(wrid::final_confirmation),
+            //            dest_qp, do_migrate_cq_.get());
+            //   std::vector<uintptr_t> my_raddr = {
+            //       reinterpret_cast<uintptr_t>(payload.data())};
+            //   send_vector(my_raddr,
+            //               static_cast<uint64_t>(wrid::check_bandwidth),
+            //               dest_qp, do_migrate_cq_.get());
+            //   deb(my_raddr);
+            //   deb(mmr->rkey);
+            //   assert(200 ==
+            //          recv_imm(static_cast<uint64_t>(wrid::check_bandwidth),
+            //                   dest_qp, do_migrate_cq_.get()));
+            //   slope::stat::add_value(slope::stat::key::operation,
+            //                          "finish: check_bandwidth");
+            // }
 
             assert(keyvalue_service_->compare_and_swap(
                 migrate_in_progress_cas_name_, "1", "0"));
@@ -833,7 +919,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       }
 
       slope::stat::add_value(slope::stat::key::operation,
-                             "received migration request from source");
+                             "received: migration request from source");
 
       deb(peer_index);
       ibv_qp *peer_qp = fullmesh_qps_[shared_address_qps_key_]
@@ -882,7 +968,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       }
 
       slope::stat::add_value(slope::stat::key::operation,
-                             "received object memory address ranges");
+                             "received: object memory address ranges");
 
       std::vector<slope::alloc::memory_chunk> chunks;
       for (auto [addr, sz] : chunks_info) {
@@ -903,6 +989,8 @@ class RdmaControlPlane : public ControlPlane<T> {
       auto raw = t_allocator.register_preowned(
           *min_element(chunks.begin(), chunks.end()), chunks);
 
+      slope::stat::add_value(slope::stat::key::operation,
+                             "start: create mrs corresponding to pages");
       std::vector<IbvRegMr> mrs;
       auto pages = slope::alloc::chunks_to_pages(chunks);
       for (auto page : pages) {
@@ -915,6 +1003,8 @@ class RdmaControlPlane : public ControlPlane<T> {
           assert(false);
         }
       }
+      slope::stat::add_value(slope::stat::key::operation,
+                             "finish: create mrs corresponding to pages");
 
       joiner_.add(std::thread([this, peer_qp, mrs = std::move(mrs), pages] {
         // for (auto &it : mrs) {
@@ -927,6 +1017,8 @@ class RdmaControlPlane : public ControlPlane<T> {
                        [&](auto &m) { return m.get()->rkey; });
 
         // deb(local_rkeys);
+        slope::stat::add_value(slope::stat::key::operation,
+                               "send: rkeys to the source for RDMA WRITE");
         send_vector(local_rkeys, destination_rkeys_wrid_, peer_qp,
                     do_migrate_cq_.get());
 
@@ -945,10 +1037,19 @@ class RdmaControlPlane : public ControlPlane<T> {
               num_dirty_pages, static_cast<uint64_t>(wrid::dirty_rkeys),
               peer_qp, do_migrate_cq_.get());
         }
+        slope::stat::add_value(slope::stat::key::operation,
+                               "received: dirty pages");
 
         slope::stat::add_value(slope::stat::key::operation,
-                               "received ownership");
+                               "wait: receive ownership");
+        assert(giveup_ownership_value_ ==
+               recv_imm(static_cast<uint64_t>(wrid::giveup_ownership), peer_qp,
+                        do_migrate_cq_.get()));
+        slope::stat::add_value(slope::stat::key::operation,
+                               "done wait: receive ownership");
 
+        slope::stat::add_value(slope::stat::key::operation,
+                               "start: setting page protections");
         size_t dirty_page_index = 0;
         slope::ds::PageTracker pt;
         slope::sig::set_active_tracker(&pt);
@@ -977,7 +1078,11 @@ class RdmaControlPlane : public ControlPlane<T> {
           }
         }
         pt.close();
+        slope::stat::add_value(slope::stat::key::operation,
+                               "finish: setting page protections");
 
+        slope::stat::add_value(slope::stat::key::operation,
+                               "start: reading dirty pages");
         try {
           while (true) {
             auto page = pt.pop();
@@ -992,19 +1097,51 @@ class RdmaControlPlane : public ControlPlane<T> {
           }
         } catch (std::exception &) {
         }
+        slope::stat::add_value(slope::stat::key::operation,
+                               "finish: reading dirty pages");
         // slope::sig::set_active_tracker(nullptr);
         slope::stat::add_value(slope::stat::key::operation,
-                               "read all dirty pages");
+                               "send: final confirmation to source");
         send_imm(final_confirmation_value_,
                  static_cast<uint64_t>(wrid::final_confirmation), peer_qp,
                  do_migrate_cq_.get());
-        slope::stat::add_value(slope::stat::key::operation,
-                               "sent final confirmation to source");
+
+        // {
+        //   size_t sz = 0;
+        //   for (auto &[_, chunk_size] : pages) {
+        //     sz += chunk_size;
+        //   }
+        //   deb(sz);
+        //   slope::stat::set_meta("bandwidth_check_bytes", std::to_string(sz));
+        //   std::vector<unsigned char> payload(sz, 123);
+        //   std::iota(payload.begin() + 1, std::prev(payload.end()), 0);
+        //   IbvRegMr mmr(global_pd_.get(), payload.data(), sz,
+        //                do_migrate_mr_flags_);
+        //   auto peer_rkey =
+        //       recv_imm(static_cast<uint64_t>(wrid::check_bandwidth), peer_qp,
+        //                do_migrate_cq_.get());
+
+        //   auto peer_raddr = recv_vector<uintptr_t>(
+        //       1, static_cast<uint64_t>(wrid::check_bandwidth), peer_qp,
+        //       do_migrate_cq_.get());
+        //   deb(peer_raddr);
+        //   deb(peer_rkey);
+        //   slope::stat::add_value(slope::stat::key::operation,
+        //                          "start: check_bandwidth");
+        //   write_segment(reinterpret_cast<uintptr_t>(payload.data()), sz,
+        //                 mmr->lkey, peer_qp, peer_rkey, peer_raddr[0],
+        //                 static_cast<uint64_t>(wrid::check_bandwidth),
+        //                 do_migrate_cq_.get());
+        //   send_imm(200, static_cast<uint64_t>(wrid::check_bandwidth),
+        //   peer_qp,
+        //            do_migrate_cq_.get());
+        // }
+
       }));
       debout("before ret raw");
 
       slope::stat::add_value(slope::stat::key::operation,
-                             "returning object, ready to be referenced");
+                             "return object pointer to caller");
       debout("calling adopt");
       return mig_ptr<T>::adopt(raw);
     }
@@ -1442,6 +1579,7 @@ class RdmaControlPlane : public ControlPlane<T> {
                                                        IBV_ACCESS_REMOTE_WRITE;
     static inline const int final_read_mr_flags_ = IBV_ACCESS_REMOTE_READ;
     static inline const int final_confirmation_value_ = 132;
+    static inline const int giveup_ownership_value_ = 133;
     static inline const int sender_prefill_mr_flags_ = 0;
     DoMigrateRequest do_migrate_req_;
     IbvRegMr do_migrate_mr_;

@@ -2,6 +2,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+def time_between(log, fr, to):
+    if fr not in log or to not in log:
+        return None
+    return log[to] - log[fr]
+
+
+def clean_none_keys(d):
+    to_del = set()
+    for k in d.keys():
+        if d[k] is None:
+            to_del.add(k)
+
+    for k in to_del:
+        del d[k]
+
+
 def get_info(log, required_keys):
     machines = list(log["meta"].keys())
     for machine in machines:
@@ -17,32 +33,21 @@ def get_info(log, required_keys):
                op["value"] not in by_name)
         by_name[op["value"]] = op["nanos"]
 
-    try:
-        info["Prefill duration"] = by_name["finish prefill"] - \
-            by_name["start init_migration"]
-    except:
-        pass
+    info["Prefill duration"] = time_between(by_name,
+        "start: init_migration", "finish: prefill writes")
 
+    info["Duration without owner"] = time_between(by_name,
+        "transfer ownership to destination", "done wait: receive ownership")
 
-    try:
-        info["Duration without owner"] = by_name["received ownership"] - \
-            by_name["object locked - proceed to commit"]
-    except:
-        pass
+    info["Time spent transferring dirty pages"] = time_between(by_name,
+                "start: setting page protections", "finish: reading dirty pages")
 
+    info["End to end latency"] = time_between(by_name, "start: init_migration",
+        "received: final confirmation from the destination")
 
-    try:
-        info["Time spent transferring dirty pages"] = by_name["read all dirty pages"] - \
-            by_name["got dirty pages"]
-    except:
-        pass
+    # info["Time to send the object"] = time_between(by_name,
+    #     "start: check_bandwidth", "finish: check_bandwidth")
 
-
-    try:
-        info["End to end latency"] = by_name["sent final confirmation to source"] - \
-            by_name["start init_migration"]
-    except:
-        pass
 
     want_keys = set(required_keys)
     del_keys = set()
@@ -53,6 +58,7 @@ def get_info(log, required_keys):
     for k in del_keys:
         del info[k]
 
+    clean_none_keys(info)
     return info
 
 

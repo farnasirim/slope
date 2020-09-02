@@ -9,8 +9,8 @@ import bench_common
 
 
 def plot_readonly(benches):
-    fig, (sub0, sub1) = plt.subplots(2, 1, figsize=(10, 8))
-    fig.set_size_inches(w=settings.plot_width, h=2*settings.plot_width / (16 / 9))
+    fig, sub0 = plt.subplots(1, 1, figsize=(10, 4))
+    fig.set_size_inches(w=settings.plot_width, h=settings.plot_width / (16 / 9))
 
     logs_list = list(map(etl.get_merged_logs, benches))
     required_keys = ["Prefill duration", "Duration without owner", "End to end latency"]
@@ -32,23 +32,16 @@ def plot_readonly(benches):
         xs = crunch.select(data, 0)
         ys = crunch.select(data, 1)
         ys = list(map(lambda x: x/1e6, ys))
-        if plot_name == "Duration without owner":
-            plot_line(fig, sub1, xs, ys, label=plot_name)
-        else:
-            plot_line(fig, sub0, xs, ys, label=plot_name)
+        plot_line(fig, sub0, xs, ys, label=plot_name)
+        print(ys)
 
     bench_common.remove_zero(sub0)
     sub0.set_xlabel("Number of 4KB pages")
     sub0.set_ylabel("Elapsed time (milliseconds)")
 
-    bench_common.remove_zero(sub1)
-    sub1.set_xlabel("Number of 4KB pages")
-    sub1.set_ylabel("Elapsed time (milliseconds)")
-
     # plot_line(fig, sub, [1, 2, 3], [4, 5, 6], label="hello", color=(0, 1, 0))
 
     sub0.legend()
-    sub1.legend()
     # points = []
     # for log in logs_list:
     #     info = get_info(log)

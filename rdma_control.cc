@@ -27,14 +27,32 @@ int TwoStepMigrationOperation::get_ready_state() {
   return *ready_state_;
 }
 
-bool TwoStepMigrationOperation::try_commit() {
+bool TwoStepMigrationOperation::try_finish_write() {
   bool ret = false;
   {
     std::lock_guard<std::mutex> lk(*m_);
     if (*ready_state_ == 1) {
       *ready_state_ = 2;
       ret = true;
-    } else if (*ready_state_ == 2) {
+    } else if (*ready_state_ >= 2) {
+      throw std::exception();
+    }
+  }
+
+  if (ret) {
+    cv_->notify_all();
+  }
+  return ret;
+}
+
+bool TwoStepMigrationOperation::try_finish_read() {
+  bool ret = false;
+  {
+    std::lock_guard<std::mutex> lk(*m_);
+    if (*ready_state_ == 3) {
+      *ready_state_ = 4;
+      ret = true;
+    } else if (*ready_state_ >= 4) {
       throw std::exception();
     }
   }

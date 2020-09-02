@@ -13,7 +13,8 @@ namespace control {
 class MigrationOperation {
  public:
   using ptr = std::unique_ptr<MigrationOperation>;
-  virtual bool try_commit() = 0;
+  virtual bool try_finish_write() = 0;
+  virtual bool try_finish_read() = 0;
   virtual void collect() = 0;
   virtual int get_ready_state() = 0;
 };

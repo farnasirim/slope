@@ -4,6 +4,16 @@ import string
 import json
 
 
+def try_map(f, l):
+    ret = []
+    for x in l:
+        try:
+            ret.append(f(x))
+        except:
+            pass
+    return ret
+
+
 def get_merged_logs(bench):
     ret = {
         "meta": {},

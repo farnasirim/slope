@@ -51,25 +51,42 @@ void run(std::string self_id, std::vector<std::string> peers,
 
     debout("start the migration");
     deb(cp->cluster_nodes());
-    slope::stat::add_value(slope::stat::key::operation, "call init_migration");
+    slope::stat::add_value(slope::stat::key::operation, "call: init_migration");
     auto operation = cp->init_migration(cp->cluster_nodes()[1], ptr);
     slope::stat::add_value(slope::stat::key::operation,
-                           "start calling try_commit");
+                           "start: waiting for ready_state 1");
     while (operation->get_ready_state() != 1) {
       std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
+    slope::stat::add_value(slope::stat::key::operation,
+                           "finish: waiting for ready_state 1");
+
     for (size_t i = 0; i < ptr.get()->size(); i += 1024) {
       (*ptr.get())[i] = 1;
     }
-    // deb(*ptr.get());
+
+    slope::stat::add_value(slope::stat::key::operation,
+                           "start: calling try_finish_write");
     while (true) {
-      if (operation->try_commit()) {
+      if (operation->try_finish_write()) {
         break;
       }
     }
-    slope::stat::add_value(slope::stat::key::operation, "finished try_commit");
+    slope::stat::add_value(slope::stat::key::operation,
+                           "finish: calling try_finish_write");
+
+    slope::stat::add_value(slope::stat::key::operation,
+                           "start: calling try_finish_read");
+    while (true) {
+      if (operation->try_finish_read()) {
+        break;
+      }
+    }
+    slope::stat::add_value(slope::stat::key::operation,
+                           "finish: calling try_finish_read");
+
     operation->collect();
-    slope::stat::add_value(slope::stat::key::operation, "finished collect");
+    slope::stat::add_value(slope::stat::key::operation, "finish: collect");
   } else {
     // cp->simple_recv();
     while (true) {
@@ -78,7 +95,8 @@ void run(std::string self_id, std::vector<std::string> peers,
       if (migrated_ptr.get() != nullptr) {
         debout("returned");
         // deb((*migrated_ptr.get()));
-        slope::stat::add_value(slope::stat::key::operation, "got ptr");
+        slope::stat::add_value(slope::stat::key::operation,
+                               "recieved: object ptr");
 #ifdef SLOPE_DEBUG
         for (auto it : migrated_ptr.get_chunks()) {
           std::stringstream out;
@@ -89,15 +107,13 @@ void run(std::string self_id, std::vector<std::string> peers,
         }
 #endif
         slope::stat::add_value(slope::stat::key::operation,
-                               "called collect_pages");
+                               "call: collect_pages");
         migrated_ptr.collect_pages();
-        // deb((*migrated_ptr.get()));
         slope::stat::add_value(slope::stat::key::operation,
-                               "finished collect_pages");
+                               "finish: collect_pages");
         break;
       }
     }
-    debout("done");
     std::this_thread::sleep_for(std::chrono::seconds(2));
   }
 }

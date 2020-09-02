@@ -57,9 +57,10 @@ void testdrive_migrate(typename
         (*ptr.get())[0] = 10;
       }
       // std::cout << "will try commit" << std::endl;
-      if (operation->try_commit()) {
-        break;
-      }
+      // TODO: fix try_commit
+      // if (operation->try_commit()) {
+      //   break;
+      // }
     }
     operation->collect();
   } else {
