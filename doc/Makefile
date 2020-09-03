@@ -1,4 +1,4 @@
-.PHONY: all bench-readonly.pgf bench-writeall.pgf
+.PHONY: all bench-readonly.pgf bench-writeall.pgf bench-bloomfilter.pgf
 
 plotdeps: ../analyze.py ../readonly.py ../writeall.py
 
@@ -10,11 +10,15 @@ bench-writeall.pgf: plotdeps
 	cd .. && \
 	./analyze.py plot --dir=bench-results --tag=writeall-10000-1s2235 --workload=writeall --texname=$@ && mv $@ doc
 
+bench-bloomfilter.pgf: plotdeps
+	cd .. && \
+	./analyze.py plot --dir=bench-results --tag=bloomfilter-3s0530 --workload=bloomfilter --texname=$@ && mv $@ doc
+
 run:
 	touch thesis.pdf
 	while true ; do make all && (diff thesis.pdf view.pdf || mv thesis.pdf view.pdf) ; sleep 2 ; done
 
-all: bench-readonly.pgf bench-writeall.pgf
+all: bench-readonly.pgf bench-writeall.pgf bench-bloomfilter.pgf
 	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
 	bibtex thesis.aux
 	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex

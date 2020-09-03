@@ -64,29 +64,14 @@ this operation, excluding lines that serve the purpose of gathering statistics.
 
 Naturally, the prefill phase takes up most of the transfer time, which grows
 linearly by increasing the size of the object. The increasing gap between the
-prefill duration and the end to end latency can be attributed to the fact that
-the receiver immediately tries to access the underlying contents of the vector.
-This results in multiple calls to the OS (e.g. \texttt{mprotect}) and into the
-signal handler.
+prefill duration and the end to end latency can be attributed to syscalls and
+invocation of the signal handler, both of which increase linearly with the
+number of pages that are transferred before or after the prefill phase. The
+time it takes to turn over the ownership is not impacted by the
+size of the object and oscillates between tens of microseconds and hundreds
+of microseconds. This is expected as this step consists of a single RDMA SEND.
 
-The time it takes to turn over
-the ownership, during which the object is unusable on either side is multiple
-orders of magnitude smaller than the total time migration time.
-It grows faster than linear because we call into the memory allocator
-for each 4KB page. The memory allocator uses a red-black tree internally which
-increases the running time by a factor of $log(n)$. We also call into the
-operating system through \texttt{mprotect} for each page which contributes
-to the running time.
-
-As discussed previously, these can be optimized out by
-merging adjacent ranges to each other, yielding close to constant running time
-in this case, however we removed this optimization to allow for a better
-comparison to be made with the more complicated (e.g. read-write) cases or
-with read-only scenarios,
-with more realistic allocation/deallocation behaviors, causing fragmentation
-of the object memory.
-
-\subsection{Migrating a write-heavy object}
+\subsection{Migrating a vector while dirtying all of its pages}
 \begin{figure}[tp]
     \begin{center}
         \input{bench-writeall.pgf}
@@ -98,38 +83,32 @@ of the object memory.
 In this micro-benchmark, we create a vector, dirty all of its pages after the
 prefill phase has finished, and then finalize the transfer. Compared to the
 clean scenario in \autoref{sec:cleanvec}, we need to spend extra time to
-retransfer the dirty pages. Furthermore, the period during which the object is
-unusable on either side has increased by an order of magnitude, since we need to
-process the dirty page addresses on the receiver side to be able to assign
-correct permissions to them before allowing read/writes to take place against
-them.
+retransfer the dirty pages. As we would expect, the time it takes to turn over
+the object ownership is remain unchanged, however based on the usage of the
+application, there will be a period during which the object is read-only on the
+sender's side and the writes will be delayed on the receiver's side. We
+explore the implications of this in \autoref{sec:evalmigfriendly} and
+\autoref{sec:evalgenericobj}.
+
 
 Although the same set of pages are sent/received during the prefill phase and
-transferring of the dirty pages, the former takes considerably longer. This is
-largely due to executing a larger number of system calls during the prefill
-phase (e.g. pinning pages to physical memory on both machines). Even though
-RDMA READ is more efficient than RDMA WRITE, their difference is barely
-noticeable in this case, as the number of system calls during the prefill phase
-dominates the running time.
+transferring of the dirty pages, the former takes considerably longer. This
+happens because we do not need to pin the object memory to physical memory all
+over again on each side.
 
+\section{Case study: Bloom filter}
+\label{sec:evalmigfriendly}
 
-\subsection{Migrating an object based on the writes it receives}
-Object size from 10 to ... each of them are rows in the same plot
-
-x axis shows the percentage of the pages that are constantly being dirtied
-
-Each point shows the elapsed time of that particular setting
-
-
-\section{Case study: migration friendly objects}
-
-bloom filter
-
-cucko hashing
-
-double hashing
+\begin{figure}[tp]
+    \begin{center}
+        \input{bench-bloomfilter.pgf}
+    \end{center}
+    \caption{Migration timeline of a Bloom filter}
+    \label{fig:bloomfilter}
+\end{figure}
 
 \section{Case study: generic objects}
+\label{sec:evalgenericobj}
 
 c++ map
 
