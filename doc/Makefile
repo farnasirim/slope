@@ -1,14 +1,14 @@
-.PHONY: all
+.PHONY: all bench-readonly.pgf bench-writeall.pgf
 
 plotdeps: ../analyze.py ../readonly.py ../writeall.py
 
 bench-readonly.pgf: plotdeps
 	cd .. && \
-	./analyze.py plot --dir=bench-results --tag=readonly-chunked7-10000 --workload=readonly --texname=$@ && mv $@ doc
+	./analyze.py plot --dir=bench-results --tag=readonly-10000-1s2235 --workload=readonly --texname=$@ && mv $@ doc
 
 bench-writeall.pgf: plotdeps
 	cd .. && \
-	./analyze.py plot --dir=bench-results --tag=writeall-chunked7-10000 --workload=writeall --texname=$@ && mv $@ doc
+	./analyze.py plot --dir=bench-results --tag=writeall-10000-1s2235 --workload=writeall --texname=$@ && mv $@ doc
 
 run:
 	touch thesis.pdf
