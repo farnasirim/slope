@@ -38,12 +38,13 @@ class BloomFilter {
 
   uint32_t get_ind(const T &, uint32_t);
 
+  MigVector<uint8_t> vec;
+
  private:
 
   static inline const uint32_t p1 = 701;
   static inline const uint32_t p2 = 107;
 
-  MigVector<uint8_t> vec;
   std::vector<std::mutex> *locks;
 };
 

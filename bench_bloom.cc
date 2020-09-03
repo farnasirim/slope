@@ -14,7 +14,7 @@ namespace slope {
 namespace bench {
 namespace bloomfilter {
 
-static const int gran = 10000;
+static const int gran = 100;
 
 void run(std::string self_id, std::vector<std::string> peers,
          std::unique_ptr<slope::keyvalue::KeyValuePrefixMiddleware> kv,
@@ -28,6 +28,7 @@ void run(std::string self_id, std::vector<std::string> peers,
 
   assert(params.size() == 1);
   uint32_t bloomfilter_size = std::stoul(params[bloomfilter_size_param]);
+  bloomfilter_size *= 4096;
   assert(bloomfilter_size > 0);
   slope::stat::set_param_meta(bloomfilter_size_param,
                               params[bloomfilter_size_param]);
@@ -122,7 +123,7 @@ void run(std::string self_id, std::vector<std::string> peers,
       }
     });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
     debout("start the migration");
     slope::stat::add_value(slope::stat::key::operation, "call:init_migration");
     auto operation = cp->init_migration(cp->cluster_nodes()[1], ptr);
@@ -232,12 +233,7 @@ void run(std::string self_id, std::vector<std::string> peers,
           }
         });
 
-        slope::stat::add_value(slope::stat::key::operation,
-                               "call: collect_pages");
-        ptr.collect_pages();
-        slope::stat::add_value(slope::stat::key::operation,
-                               "finish: collect_pages");
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::seconds(2));
         quit = 1;
         reader.join();
         writer.join();

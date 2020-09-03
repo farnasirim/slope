@@ -12,6 +12,7 @@ import etl
 from crunch import *
 from readonly import plot_readonly
 from writeall import plot_writeall
+from bloomfilter import plot_bloomfilter
 
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
@@ -54,6 +55,8 @@ def main():
             plot_readonly(benches)
         elif args.workload == "writeall":
             plot_writeall(benches)
+        elif args.workload == "bloomfilter":
+            plot_bloomfilter(benches)
         else:
             assert(False)
     else:
