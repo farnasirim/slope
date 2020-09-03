@@ -56,9 +56,6 @@ void run(std::string self_id, std::vector<std::string> peers,
     auto operation = cp->init_migration(cp->cluster_nodes()[1], ptr);
 
     slope::stat::add_value(slope::stat::key::operation,
-                           "start: calling try_finish_read");
-
-    slope::stat::add_value(slope::stat::key::operation,
                            "start: calling try_finish_write");
     while (true) {
       if (operation->try_finish_write()) {
@@ -68,6 +65,8 @@ void run(std::string self_id, std::vector<std::string> peers,
     slope::stat::add_value(slope::stat::key::operation,
                            "finish: calling try_finish_write");
 
+    slope::stat::add_value(slope::stat::key::operation,
+                           "start: calling try_finish_read");
     while (true) {
       if (operation->try_finish_read()) {
         break;

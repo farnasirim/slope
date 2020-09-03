@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "allocator.h"
+#include "bench_bloom.h"
 #include "bench_readonly.h"
 #include "bench_writeall.h"
 #include "debug.h"
@@ -122,6 +123,10 @@ int main(int argc, char **argv) {
     slope::bench::readonly::run(self_id, peers, std::move(slope_kv), params);
   } else if (workload_name == "writeall") {
     slope::bench::writeall::run(self_id, peers, std::move(slope_kv), params);
+  } else if (workload_name == "bloomfilter") {
+    slope::bench::bloomfilter::run(self_id, peers, std::move(slope_kv), params);
+  } else {
+    assert(false);
   }
 
   std::cout << slope::stat::get_all_logs().dump(4) << std::endl;
