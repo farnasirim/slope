@@ -14,6 +14,7 @@
 
 #include "allocator.h"
 #include "bench_bloom.h"
+#include "bench_map.h"
 #include "bench_readonly.h"
 #include "bench_writeall.h"
 #include "debug.h"
@@ -125,6 +126,8 @@ int main(int argc, char **argv) {
     slope::bench::writeall::run(self_id, peers, std::move(slope_kv), params);
   } else if (workload_name == "bloomfilter") {
     slope::bench::bloomfilter::run(self_id, peers, std::move(slope_kv), params);
+  } else if (workload_name == "map") {
+    slope::bench::map::run(self_id, peers, std::move(slope_kv), params);
   } else {
     assert(false);
   }

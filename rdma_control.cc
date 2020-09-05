@@ -27,6 +27,18 @@ int TwoStepMigrationOperation::get_ready_state() {
   return *ready_state_;
 }
 
+StatusTracker::StatusTracker() : st_(Status::initial) {}
+
+void StatusTracker::set_done() {
+  std::lock_guard<std::mutex> lk(m_);
+  st_ = Status::done;
+}
+
+StatusTracker::Status StatusTracker::get_value() {
+  std::lock_guard<std::mutex> lk(m_);
+  return st_;
+}
+
 bool TwoStepMigrationOperation::try_finish_write() {
   bool ret = false;
   {

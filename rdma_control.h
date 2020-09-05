@@ -85,6 +85,21 @@ struct Page {
 };
 }
 
+class StatusTracker {
+ public:
+  enum class Status : int {
+    initial = 0,
+    done = 1,
+  };
+  StatusTracker();
+  void set_done();
+  Status get_value();
+
+ private:
+  Status st_;
+  std::mutex m_;
+};
+
 class TwoStepMigrationOperation : public MigrationOperation {
  public:
   bool try_finish_write() override;
@@ -900,7 +915,7 @@ class RdmaControlPlane : public ControlPlane<T> {
       }
     }
 
-    mig_ptr<T> poll_migrate() {
+    mig_ptr<T> poll_migrate(std::shared_ptr<StatusTracker> status = nullptr) {
       // TODO: repost the recvs to do_migrate_qp
       std::lock_guard<std::mutex> polling_guard(control_plane_polling_lock_);
 
@@ -1006,7 +1021,8 @@ class RdmaControlPlane : public ControlPlane<T> {
       slope::stat::add_value(slope::stat::key::operation,
                              "finish: create mrs corresponding to pages");
 
-      joiner_.add(std::thread([this, peer_qp, mrs = std::move(mrs), pages] {
+      joiner_.add(std::thread([this, status, peer_qp, mrs = std::move(mrs),
+                               pages] {
         // for (auto &it : mrs) {
         //   deb(it.get()->addr);
         //   deb(it.get()->rkey);
@@ -1106,6 +1122,10 @@ class RdmaControlPlane : public ControlPlane<T> {
                  static_cast<uint64_t>(wrid::final_confirmation), peer_qp,
                  do_migrate_cq_.get());
 
+        if (status != nullptr) {
+          status->set_done();
+        }
+
         // {
         //   size_t sz = 0;
         //   for (auto &[_, chunk_size] : pages) {
@@ -1136,7 +1156,6 @@ class RdmaControlPlane : public ControlPlane<T> {
         //   peer_qp,
         //            do_migrate_cq_.get());
         // }
-
       }));
       debout("before ret raw");
 

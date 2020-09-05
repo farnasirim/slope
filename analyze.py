@@ -13,6 +13,7 @@ from crunch import *
 from readonly import plot_readonly
 from writeall import plot_writeall
 from bloomfilter import plot_bloomfilter
+from map import plot_map
 
 from multiprocessing import Pool
 from multiprocessing.pool import ThreadPool
@@ -57,6 +58,8 @@ def main():
             plot_writeall(benches)
         elif args.workload == "bloomfilter":
             plot_bloomfilter(benches)
+        elif args.workload == "map":
+            plot_map(benches)
         else:
             assert(False)
     else:
