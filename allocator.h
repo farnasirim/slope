@@ -105,7 +105,7 @@ struct FixedPoolAllocator {
   template <class U> constexpr FixedPoolAllocator(
       const FixedPoolAllocator<U>&) noexcept {}
 
-  static std::vector<memory_chunk> get_4k_pages(const T* ptr) {
+  static std::vector<memory_chunk> get_pages(const T* ptr) {
     return chunks_to_pages(get_chunks(ptr));
   }
 
@@ -161,10 +161,14 @@ struct FixedPoolAllocator {
         infoout(deb_ss.str());
       }
     }
+    for (const auto& chunk : chunks_to_pages(chunks)) {
+      deb(chunk.first);
+      deb(chunk.second);
 
-    for(const auto& chunk: chunks_to_pages(chunks)) {
       if (mprotect(reinterpret_cast<void*>(chunk.first), chunk.second,
                    PROT_READ | PROT_WRITE)) {
+        deb(chunk.first);
+        deb(chunk.second);
         perror("mprotect");
         assert(false);
       }

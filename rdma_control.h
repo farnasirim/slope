@@ -379,6 +379,8 @@ class RdmaControlPlane : public ControlPlane<T> {
       slope::stat::add_value(slope::stat::key::operation,
                              "start: init_migration");
       auto chunks = target_object.get_chunks();
+      deb(chunks);
+      deb(slope::alloc::chunks_to_pages(chunks));
 
       auto ready_state_mutex = std::make_shared<std::mutex>();
       std::shared_ptr<int> ready_state = std::make_shared<int>();
@@ -998,6 +1000,9 @@ class RdmaControlPlane : public ControlPlane<T> {
       //   infoout(deb_ss.str());
       // }
       // debout("done");
+
+      deb(chunks);
+      deb(slope::alloc::chunks_to_pages(chunks));
 
       auto &t_allocator = alloc::allocator_instance<T>();
       // // HUUUUGE TODO: owner is not necessarily the first page

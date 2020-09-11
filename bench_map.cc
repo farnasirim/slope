@@ -52,7 +52,7 @@ void run(std::string self_id, std::vector<std::string> peers,
     //     debout(out.str());
     //   }
     //   std::cout << std::endl;
-    //   for (auto it : ptr.get_4k_pages()) {
+    //   for (auto it : ptr.get_pages()) {
     //     std::stringstream out;
     //     out << std::showbase << std::internal << std::setfill('0') << " @"
     //         << std::hex << std::setw(16) << it.first;

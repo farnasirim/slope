@@ -10,7 +10,7 @@
 #include <set>
 
 void add_mmap(void) {
-  slope::alloc::page_size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+  slope::alloc::page_size = SLOPE_PAGE_SIZE;
   slope::alloc::num_pages = SLOPE_NUM_PAGES;
   slope::alloc::mem_size = slope::alloc::page_size * slope::alloc::num_pages;
 

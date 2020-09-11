@@ -44,3 +44,5 @@ echo "$(git status)" > $BENCH_RESULT_DIR/$bench_dir_name/status
 echo "$TAG" > $BENCH_RESULT_DIR/$bench_dir_name/tag
 
 echo $BENCH_RESULT_DIR/$bench_dir_name
+
+wait

@@ -16,18 +16,19 @@ void run(std::string self_id, std::vector<std::string> peers,
          std::map<std::string, std::string> params) {
   std::sort(peers.begin(), peers.end());
 
-  auto cp = std::make_unique<slope::control::RdmaControlPlane<MigVector32>>(
+  auto cp = std::make_unique<slope::control::RdmaControlPlane<MigVectorB>>(
       self_id, peers, std::move(kv));
 
   assert(params.size() == 1);
-  uint32_t num_pages = std::stoul(params[num_pages_param]);
+  size_t num_pages = std::stoul(params[num_pages_param]);
   assert(num_pages > 0);
   slope::stat::set_param_meta(num_pages_param, params[num_pages_param]);
-  uint32_t num_entries = (num_pages - 1) * slope::alloc::page_size / 4 + 1;
+  size_t num_entries =
+      (num_pages - 1) * slope::alloc::page_size / sizeof(Payload) + 1;
 
   if (cp->self_name() == cp->cluster_nodes().front()) {
     debout("start testdrive_migrate");
-    slope::mig_ptr<MigVector32> ptr;
+    slope::mig_ptr<MigVectorB> ptr;
     debout("finished creating a vector of int of size 0");
     {
       debout("acquiring a context for adding elements to the vector");

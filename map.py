@@ -57,6 +57,10 @@ def plot_map(bench):
             for name in names:
                 ys[name].append(throughputs[name][-1][1])
 
+    start_x = x[0]
+    for i in range(len(x)):
+        x[i] -= start_x
+
 
     # print(len(x))
     # x = x[:10]
@@ -71,9 +75,9 @@ def plot_map(bench):
 # --- FORMAT 1
 
 # Your x and y axis
-    factor = 1
+    factor = 100
     x = downsample(factor, x)
-    keys = list(throughputs.keys())
+    keys = sorted(list(throughputs.keys()))
     yys = []
     for k in keys:
         yys.append(downsample(factor, ys[k]))
@@ -86,22 +90,25 @@ def plot_map(bench):
 
 # Basic stacked area chart.
     sub0.stackplot(x,yys, labels=keys)
-    verticals = ["start: calling try_finish_write",
-                 "start: calling try_finish_read",
-                 "done wait: for call to finish writes",
+    verticals = ["finish: calling try_finish_write",
+                 "start: calling try_finish_write",
+                 "finish: calling try_finish_read",
+                 # "done wait: for call to finish writes",
                  "received: final confirmation from the destination",
                  "start: reading dirty pages",
+                 "start: prefill writes",
+                 "finish: prefill writes",
                  "finish: reading dirty pages",
                  "call:init_migration",
-                 "advance: no new writes",
-                 "finish: collect"
+                 # "advance: no new writes",
+                 # "finish: collect"
                  ]
 
     colors = ['b',  'y', 'm', 'r', 'g', 'c', 'm', 'k']
 
     by_name = {}
     for op in logs["time_series"]["operation"]:
-        by_name[op["value"]] = op["nanos"]
+        by_name[op["value"]] = op["nanos"] - start_x
 
     i = 0
     machines = list(logs["meta"].keys())

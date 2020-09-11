@@ -22,7 +22,9 @@ using MigAlloc = slope::alloc::FixedPoolAllocator<T>;
 template <typename T>
 using MigVector = std::vector<T, MigAlloc<T>>;
 
-using MigVector32 = MigVector<uint32_t>;
+using Payload = uint32_t;
+
+using MigVectorB = MigVector<Payload>;
 
 const std::string num_pages_param = "num_pages";
 

@@ -28,7 +28,6 @@ void run(std::string self_id, std::vector<std::string> peers,
 
   assert(params.size() == 1);
   uint32_t bloomfilter_size = std::stoul(params[bloomfilter_size_param]);
-  bloomfilter_size *= 4096;
   assert(bloomfilter_size > 0);
   slope::stat::set_param_meta(bloomfilter_size_param,
                               params[bloomfilter_size_param]);
@@ -180,8 +179,9 @@ void run(std::string self_id, std::vector<std::string> peers,
     writer.join();
   } else {
     // cp->simple_recv();
+    auto st = std::make_shared<slope::control::StatusTracker>();
     while (true) {
-      auto ptr = cp->poll_migrate();
+      auto ptr = cp->poll_migrate(st);
       if (ptr.get() != nullptr) {
         slope::stat::add_value(slope::stat::key::operation,
                                "recieved: object ptr");
@@ -233,7 +233,9 @@ void run(std::string self_id, std::vector<std::string> peers,
           }
         });
 
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        while (st->get_value() != slope::control::StatusTracker::Status::done) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
         quit = 1;
         reader.join();
         writer.join();
