@@ -14,10 +14,15 @@ void add_mmap(void) {
   slope::alloc::num_pages = SLOPE_NUM_PAGES;
   slope::alloc::mem_size = slope::alloc::page_size * slope::alloc::num_pages;
 
-  slope::alloc::mem = static_cast<char*>(mmap(reinterpret_cast<void*>(SLOPE_MEM_ADDR),
-      slope::alloc::mem_size,
-      PROT_NONE, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
-      -1, 0));
+  int map_flags = MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS;
+
+#ifdef SLOPE_HW_HUGE_PAGES
+  map_flags |= MAP_HUGETLB;
+#endif
+
+  slope::alloc::mem = static_cast<char*>(
+      mmap(reinterpret_cast<void*>(SLOPE_MEM_ADDR), slope::alloc::mem_size,
+           PROT_NONE, map_flags, -1, 0));
   if(slope::alloc::mem == MAP_FAILED) {
     std::perror("mmap (constructor)");
     assert(false);
