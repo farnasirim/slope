@@ -56,7 +56,7 @@ void run(std::string self_id, std::vector<std::string> peers,
     slope::stat::add_value(slope::stat::key::operation,
                            "start: waiting for ready_state 1");
     while (operation->get_ready_state() != 1) {
-      std::this_thread::sleep_for(std::chrono::microseconds(100));
+      std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
     slope::stat::add_value(slope::stat::key::operation,
                            "finish: waiting for ready_state 1");

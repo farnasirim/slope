@@ -122,7 +122,7 @@ void run(std::string self_id, std::vector<std::string> peers,
       }
     });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     debout("start the migration");
     slope::stat::add_value(slope::stat::key::operation, "call:init_migration");
     auto operation = cp->init_migration(cp->cluster_nodes()[1], ptr);
@@ -174,6 +174,7 @@ void run(std::string self_id, std::vector<std::string> peers,
                            "finish: calling try_finish_read");
     operation->collect();
     slope::stat::add_value(slope::stat::key::operation, "finish: collect");
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     quit = 1;
     reader.join();
     writer.join();
@@ -236,6 +237,7 @@ void run(std::string self_id, std::vector<std::string> peers,
         while (st->get_value() != slope::control::StatusTracker::Status::done) {
           std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         quit = 1;
         reader.join();
         writer.join();

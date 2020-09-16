@@ -36,7 +36,11 @@ def plot_writeall(benches):
         print(ys)
 
     bench_common.remove_zero(sub0)
-    sub0.set_xlabel("Number of 4KB pages")
+    xlabel = "Number of 4KB pages"
+    if "using_huge_pages" in logs_list[0]["meta"].items().__iter__().__next__()[1]:
+        xlabel = "Number of 2MB pages"
+
+    sub0.set_xlabel(xlabel)
     sub0.set_ylabel("Elapsed time (milliseconds)")
     # plot_line(fig, sub, [1, 2, 3], [4, 5, 6], label="hello", color=(0, 1, 0))
 

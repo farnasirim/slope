@@ -24,7 +24,7 @@ template <typename T>
 using MigAlloc = slope::alloc::FixedPoolAllocator<T>;
 
 template <typename T, typename T2>
-using MigMap = std::map<T, T2, std::less<T>, MigAlloc<std::pair<T, T2>>>;
+using MigMap = std::map<T, T2, std::less<T>, MigAlloc<std::pair<const T, T2>>>;
 
 using BInt = uint64_t;
 using BMap = MigMap<BInt, BInt>;

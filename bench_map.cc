@@ -30,6 +30,8 @@ void run(std::string self_id, std::vector<std::string> peers,
   assert(map_size > 0);
   slope::stat::set_param_meta(map_size_param, params[map_size_param]);
 
+  size_t prefill_size = map_size / 100;
+
   BInt result = 0;
   if (cp->self_name() == cp->cluster_nodes().front()) {
     slope::mig_ptr<BMap> ptr, local;
@@ -74,16 +76,16 @@ void run(std::string self_id, std::vector<std::string> peers,
     std::atomic_int rw_state = -2;
     std::atomic_int quit = 0;
 
-      {
-        auto ctx = ptr.create_context();
-        for (size_t i = 0; i < map_size; i++) {
-          (*ptr.get())[i] = i;
-        }
+    {
+      auto ctx = ptr.create_context();
+      for (size_t i = 0; i < prefill_size; i++) {
+        (*ptr.get())[i] = i;
+      }
       }
       {
         auto ctx = local.create_context();
-        for (size_t i = 0; i < map_size; i++) {
-            (*local.get())[i] = i;
+        for (size_t i = 0; i < prefill_size; i++) {
+          (*local.get())[i] = i;
         }
       }
 
@@ -92,7 +94,7 @@ void run(std::string self_id, std::vector<std::string> peers,
       std::mt19937 mt(rd());
       std::uniform_int_distribution<BInt> val(1, map_size - 1);
       std::uniform_int_distribution<int> op(1, 3);
-      std::uniform_int_distribution<BInt> existing_key(0, map_size - 1);
+      std::uniform_int_distribution<BInt> existing_key(0, prefill_size - 1);
       std::uniform_int_distribution<int> table(0, 1);
       int operations = 3;
       while (!quit) {
@@ -129,12 +131,10 @@ void run(std::string self_id, std::vector<std::string> peers,
             stats[this_op] += 1;
           } else if (this_op == 2) {  // write existing
             auto key = existing_key(mt);
-            auto it = const_cast<std::add_const_t<decltype(current.get())>>(
-                          current.get())
-                          ->find(key);
-            assert(it != const_cast<std::add_const_t<decltype(current.get())>>(
-                             current.get())
-                             ->end());
+            auto it =
+                const_cast<decltype(current.get())>(current.get())->find(key);
+            assert(it !=
+                   const_cast<decltype(current.get())>(current.get())->end());
             it->second = val(mt);
             stats[this_op] += 1;
           } else if (this_op == 1) {  // read
@@ -173,6 +173,8 @@ void run(std::string self_id, std::vector<std::string> peers,
 
     debout("start the migration");
     slope::stat::add_value(slope::stat::key::operation, "call:init_migration");
+    slope::stat::add_value(slope::stat::key::operation,
+                           "map sz = " + std::to_string(ptr.get()->size()));
     auto operation = cp->init_migration(cp->cluster_nodes()[1], ptr);
 
     slope::stat::add_value(slope::stat::key::operation,
@@ -234,7 +236,7 @@ void run(std::string self_id, std::vector<std::string> peers,
           std::mt19937 mt(rd());
           std::uniform_int_distribution<BInt> val(1, map_size - 1);
           std::uniform_int_distribution<int> op(1, 3);
-          std::uniform_int_distribution<BInt> existing_key(0, map_size - 1);
+          std::uniform_int_distribution<BInt> existing_key(0, prefill_size - 1);
           std::uniform_int_distribution<int> table(0, 1);
           while (!quit) {
             int cnt_ptr[4] = {0};
@@ -251,13 +253,11 @@ void run(std::string self_id, std::vector<std::string> peers,
                 (*current.get())[val(mt)] = val(mt);
               } else if (this_op == 2) {  // write existing
                 auto key = existing_key(mt);
-                auto it = const_cast<std::add_const_t<decltype(current.get())>>(
-                              current.get())
+                auto it = const_cast<decltype(current.get())>(current.get())
                               ->find(key);
-                assert(it !=
-                       const_cast<std::add_const_t<decltype(current.get())>>(
-                           current.get())
-                           ->end());
+                assert(
+                    it !=
+                    const_cast<decltype(current.get())>(current.get())->end());
                 it->second = val(mt);
               } else {  // read
                 auto it = current.get()->find(val(mt));

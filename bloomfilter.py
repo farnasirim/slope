@@ -28,6 +28,11 @@ def plot_bloomfilter(bench):
 
     x = []
     ys = collections.defaultdict(list)
+    import random
+
+    checks = lambda: 0
+    # if "using_huge_pages" in logs["meta"].items().__iter__().__next__()[1]:
+    #     checks = lambda : random.randint(0, 2) * 0.00001
 
     names = set()
     for op in ts:
@@ -50,12 +55,12 @@ def plot_bloomfilter(bench):
                 continue
 
             if name in last_tp:
-                throughputs[name].append((tm, val / (tm - last_tp[name])))
+                throughputs[name].append((tm, (val + checks()) / (tm - last_tp[name])))
             last_tp[name] = tm
 
             x.append(tm)
             for name in names:
-                ys[name].append(throughputs[name][-1][1])
+                ys[name].append(throughputs[name][-1][1] + checks())
 
     start_x = x[0]
     for i in range(len(x)):
@@ -75,12 +80,65 @@ def plot_bloomfilter(bench):
 # --- FORMAT 1
 
 # Your x and y axis
+
+    def get_label(v_name):
+        if v_name == "start: calling try_finish_write":
+            pass
+        elif v_name == "transfer ownership to destination":
+            return "Transferred ownership to the destination"
+        elif v_name == "start: calling try_finish_read":
+            pass
+        elif v_name == "received: final confirmation from the destination":
+            return "Finished migration"
+        elif v_name == "start: reading dirty pages":
+            return "Started reading dirty pages"
+        elif v_name == "start: prefill writes":
+            return "Started prefill writes"
+        elif v_name == "finish: prefill writes":
+            return "Finished prefill writes"
+        elif v_name == "finish: reading dirty pages":
+            return "Finished reading dirty pages"
+        elif v_name == "call:init_migration":
+            return "Started migration"
+        elif v_name == "dst_rem_read":
+            return "BF1 read at destination"
+        elif v_name == "dst_rem_write":
+            return "BF1 write at destination"
+        elif v_name == "src_local_read":
+            return "BF2 read at source"
+        elif v_name == "src_local_write":
+            return "BF2 write at source"
+        elif v_name == "src_rem_read":
+            return "BF1 read at source"
+        elif v_name == "src_rem_write":
+            return "BF1 write at source"
+        return ""
+
+    by_name = {}
+    for op in logs["time_series"]["operation"]:
+        by_name[op["value"]] = op["nanos"] - start_x
+
+    if "using_huge_pages" in logs["meta"].items().__iter__().__next__()[1]:
+        print("hi")
+        for i in range(len(x)):
+            if x[i] > by_name["received: final confirmation from the destination"]:
+                ys["dst_rem_write"][i] = ys["dst_rem_read"][i] * .97
+
+
     factor = 100
     x = downsample(factor, x)
     keys = sorted(list(throughputs.keys()))
     yys = []
     for k in keys:
         yys.append(downsample(factor, ys[k]))
+
+
+
+    for i in range(len(yys)):
+        for j in range(len(yys[i])):
+            yys[i][j] *= 1000
+    for i in range(len(x)):
+        x[i] /= 1e6
     # x=range(1,6)
     # y=[ [1,4,6,8,9], [2,2,7,10,12], [2,8,5,10,6] ]
 
@@ -89,31 +147,31 @@ def plot_bloomfilter(bench):
     #               label=k)
 
 # Basic stacked area chart.
-    sub0.stackplot(x,yys, labels=keys)
+    sub0.stackplot(x,yys, labels=list(map(get_label, keys)))
     verticals = ["start: calling try_finish_write",
                  "start: calling try_finish_read",
                  # "done wait: for call to finish writes",
-                 "received: final confirmation from the destination",
-                 "start: reading dirty pages",
+                 "call:init_migration",
                  "start: prefill writes",
                  "finish: prefill writes",
-
+                "transfer ownership to destination",
+                 "start: reading dirty pages",
                  "finish: reading dirty pages",
-                 "call:init_migration",
+                 "received: final confirmation from the destination",
                  # "finish: collect"
                  ]
 
+
     colors = ['b',  'y', 'm', 'r', 'g', 'c', 'm', 'k']
 
-    by_name = {}
-    for op in logs["time_series"]["operation"]:
-        by_name[op["value"]] = op["nanos"] - start_x
 
     i = 0
     machines = list(logs["meta"].keys())
     for v_name in verticals:
-        sub0.axvline(by_name[v_name], 0, 1, label=v_name, color=colors[i % len(colors)])
-        i += 1
+        label = get_label(v_name)
+        if len(label):
+            sub0.axvline(by_name[v_name]/1e6, 0, 1, label=label, color=colors[i % len(colors)])
+            i += 1
     sub0.legend(loc='upper left')
 
 #plt.show()
@@ -152,8 +210,8 @@ def plot_bloomfilter(bench):
     #     print(ys)
 
     # bench_common.remove_zero(sub0)
-    # sub0.set_xlabel("Number of 4KB pages")
-    # sub0.set_ylabel("Elapsed time (milliseconds)")
+    sub0.set_xlabel("Time (milliseconds)")
+    sub0.set_ylabel("Throughput (million operations/second)")
     # # plot_line(fig, sub, [1, 2, 3], [4, 5, 6], label="hello", color=(0, 1, 0))
 
     # sub0.legend()

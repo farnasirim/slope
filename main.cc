@@ -108,6 +108,10 @@ int main(int argc, char **argv) {
   }
   slope::stat::set_meta(slope::stat::metakey::node_name, self_id);
 
+#ifdef SLOPE_USE_HUGE_PAGES
+  slope::stat::set_meta(slope::stat::metakey::using_huge_pages, "1");
+#endif  // SLOPE_USE_HUGE_PAGES
+
   auto kv =
       std::make_unique<slope::keyvalue::Memcached>(memcached_confstr.c_str());
   auto slope_kv = std::make_unique<slope::keyvalue::KeyValuePrefixMiddleware>(

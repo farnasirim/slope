@@ -41,6 +41,7 @@ const std::string workload_name = "workload_name";
 const std::string node_name = "node_name";
 const std::string num_dirty_pages = "num_dirty_pages";
 const std::string num_pages = "num_pages";
+const std::string using_huge_pages = "using_huge_pages";
 }  // namespace metakey
 
 namespace value{
