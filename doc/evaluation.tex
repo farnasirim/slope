@@ -52,7 +52,7 @@ ideal.
     \begin{center}
         \input{bench-readonly.pgf}
     \end{center}
-    \caption{Migration statistics of a clean vector}
+    \caption{Migration statistics of a clean vector (4KB pages)}
     \label{fig:vectorreadonly}
 \end{figure}
 
@@ -60,7 +60,7 @@ ideal.
     \begin{center}
         \input{bench-readonly-hp.pgf}
     \end{center}
-    \caption{Migration statistics of a clean vector (huge pages)}
+    \caption{Migration statistics of a clean vector (2MB huge pages)}
     \label{fig:vectorreadonlyhp}
 \end{figure}
 
@@ -89,11 +89,12 @@ the overal CPU cycles we spend for per-page operations in the memory allocator
 and the control and data planes.
 
 \subsection{Migrating a vector while dirtying all of its pages}
+\label{sec:dirtyvector}
 \begin{figure}[tp]
     \begin{center}
         \input{bench-writeall.pgf}
     \end{center}
-    \caption{Migration statistics of a vector with all pages dirty}
+    \caption{Migration statistics of a vector with all pages dirty (4KB pages)}
     \label{fig:vectorwriteall}
 \end{figure}
 
@@ -101,14 +102,16 @@ and the control and data planes.
     \begin{center}
         \input{bench-writeall-hp.pgf}
     \end{center}
-    \caption{Migration statistics of a vector with all pages dirty (huge pages)}
+    \caption{Migration statistics of a vector with all pages dirty (2MB huge pages)}
     \label{fig:vectorwriteallhp}
 \end{figure}
 
 In this micro-benchmark, we create a vector, dirty all of its pages after the
 prefill phase has finished, and then finalize the transfer. Compared to the
 clean scenario in \autoref{sec:cleanvec}, we need to spend extra time to
-retransfer the dirty pages. As we would expect, the time it takes to turn over
+retransfer the dirty pages.
+
+\autoref{fig:vectorwriteall} shows the result. As we would expect, the time it takes to turn over
 the object ownership remains unchanged, however based on the usage of the
 application, there will be a period during which the object is read-only on the
 sender's side and the writes will be delayed on the receiver's side. We
@@ -123,44 +126,92 @@ over again on each side.
 Similar to the case with a read-only vector, we repeat the experiment with huge
 pages. \autoref{fig:vectorwriteallhp} shows the result. The result resembles
 those in \autoref{sec:cleanvec}, except here the elapsed time excluding the
-prefill duration and the dirty page transfer duration is still significant. Most
-of this time is contributed by the source machine having to execute the signal
+prefill duration and the dirty page transfer duration is still significant. This
+is contributed by the source machine having to execute the signal
 handler while looping over the pages and dirtying them, after the
 prefill phase and before the final transfer phase.
 
-\section{Case study: Bloom filter}
+
+\section{Case study: bloom filter}
 \label{sec:evalmigfriendly}
-
-size: 800000000, 383 pages, 256 of which dirty
-latency compared to readonly: 1.4 end to end, latency not changed compared
-to the writeall case.
-
-200000 4KB pages, 60\% dirty
 
 \begin{figure}[tp]
     \begin{center}
         \input{bench-bloomfilter.pgf}
     \end{center}
-    \caption{Migration timeline of a Bloom filter}
+    \caption{Migration timeline of a bloom filter (4KB pages)}
     \label{fig:bloomfilter}
 \end{figure}
+
 
 \begin{figure}[tp]
     \begin{center}
         \input{bench-bloomfilter-hp.pgf}
     \end{center}
-    \caption{Migration timeline of a Bloom filter (huge pages)}
+    \caption{Migration timeline of a bloom filter (2MB huge pages)}
     \label{fig:bloomfilterhp}
 \end{figure}
 
-\section{Case study: generic objects}
+
+In this section we discuss the case for migrating a bloom filter while it is
+being queried. A bloom filter is a migration friendly object because
+no operation on the bloom filter causes a memory allocation after we initialize
+the object. The supported operations (put, get) only read or modify memory
+locations.
+
+At the start of the benchmark, two bloom filter objects, BF1
+and BF2, are on the source machine. There is no bloom filter on the destination,
+making the source machine overloaded in this scenario. On each machine there
+are two threads, a reader and a writer, each of which uniformly chooses among
+the available bloom filter objects available on the local machine to send their
+respective query (get, put) to. In this benchmark the size of each of the bloom
+filters is close to 800MB.
+
+\autoref{fig:bloomfilter} shows the timeline of the events and the throughput
+of each of the operations on the two bloom filter objects present in the system
+on either of the machines as we migrate BF1. We are using 4KB pages in this
+case and BF1 consists of 200000 pages. Around 60\% of those were dirtied during
+the migration.
+
+During the prefill period (~2200ms to ~7000ms), both objects see a decrease in
+the number of writes. As the writer thread gets blocked inside the signal
+handler while writing to the BF1 object, both BF1 and BF2 writes are equally
+impacted since they equally share the writer thread. On the other hand, read
+throughput on both objects stay the same as the reader thread never gets
+blocked.
+
+At around 7000ms we take away the write access to BF1 from the source, but
+reads continue unimpacted until around 8700ms, where we take away the read
+access too. At 8700ms the final transfer phase starts and until 9000ms,
+the destination prepares its memory locations by calling into the operating
+system and the memory allocator for each page that is being transferred.
+
+At around 9300ms, the first read and write operations on the destination
+succeed as the transfer of underlying memory for outstanding read/write
+operations is prioritized. At around 10700ms, the migration is complete and
+each of the BF objects is on a separate machine, doubling the overall
+throughput.
+
+
+\autoref{fig:bloomfilterhp} shows the same timeline in the case of using
+huge pages. 383 huge pages where transferred and 256 of them were dirtied
+by writes during the prefill phase. The overall flow of operations is similar
+to the previous case, but
+the application enjoys much shorter times across all metrics including the
+end to end latency and read and write unavailability periods.
+
+\section{Case study: Hash table partition}
 \label{sec:evalgenericobj}
+In this benchmark we discuss the case of migrating a hash table partition. We
+use \texttt{std::map} which is migration unfriendly because of the possibility
+of frequent memory allocations.
+
 
 \begin{figure}[tp]
     \begin{center}
         \input{bench-map.pgf}
     \end{center}
-    \caption{Migration timeline of a map}
+    \caption{Migration timeline of a map (4KB pages)}
     \label{fig:map}
 \end{figure}
 
@@ -168,16 +219,37 @@ to the writeall case.
     \begin{center}
         \input{bench-map-hp.pgf}
     \end{center}
-    \caption{Migration timeline of a map (huge pages)}
+    \caption{Migration timeline of a map (2MB huge pages)}
     \label{fig:maphp}
 \end{figure}
 
 
-c++ map
+Each machine shares its processing time among the hash table partitions that
+it owns. Initially, the target partition (MP) is owned by the source machine, but half of
+the processing time of the source machine is allocated to another partition that
+it owns (throughput for this other partition omitted for brevity). As a result
+the source machine decides to migrate MP to the destination machine, where MP
+can use the available CPU time to achieve better throughput.
 
-23/24 dirty
+\autoref{fig:map} and \autoref{fig:maphp} show the timeline and the throughput
+over time of the MP object as it is being migrated with 4KB and 2MB pages
+respectively. Insert operations add new elements to the map, updates change
+the value of a key in-place, and reads query a key. After starting the migration
+we are no longer allowed to issue insert operations as they would require
+memory allocations.
 
-5400/11900 4k
+At the start of the prefill phase starting at 100ms, MP has grown to around 40MB.
+During the long prefill phases, read and write operations on MP continue and as
+a result, half of the pages in the 4KB pages, and 23 out of the 24 pages in the
+2MB page case are dirtied. Even though the finer grain 4KB pages detected the
+dirty memory locations more precisely, huge pages outperformed 4KB pages in all
+metrics in all configurations (MP size, read/write window closure duration,
+dirty page percentage, etc.) of this workload.
+
+The end to end latency in this scenario is large but is not an important
+performance factor because the operations
+on the map that were needed to dirty the underlying pages of MP dominate
+the migration duration.
 
 
 
