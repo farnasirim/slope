@@ -252,7 +252,7 @@ difference in any of the observations.
 
 The 1GB size allows for lease requests to be infrequent enough to amortize
 seamlessly over the number of allocations, while keeping them small enough
-to avoid sudden increases in the memory usage of any of the nodes. The 10
+to avoid sudden increases in the memory usage of any of the nodes. The 1
 second interval keeps the lease ownership counts up to date across the cluster,
 while causing little overhead to the application. However because of stale
 information during the intervals, the nodes will not always
