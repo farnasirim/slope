@@ -56,6 +56,14 @@ ideal.
     \label{fig:vectorreadonly}
 \end{figure}
 
+\begin{figure}[tp]
+    \begin{center}
+        \input{bench-readonly-hp.pgf}
+    \end{center}
+    \caption{Migration statistics of a clean vector (huge pages)}
+    \label{fig:vectorreadonlyhp}
+\end{figure}
+
 In our simplest example, we create a \texttt{vector}, initialize it with the
 pre-specified size and migrate it to the destination. Approximately $8$ lines
 of code are required on each of the source and destination sides to reproduce
@@ -71,6 +79,15 @@ time it takes to turn over the ownership is not impacted by the
 size of the object and oscillates between tens of microseconds and hundreds
 of microseconds. This is expected as this step consists of a single RDMA SEND.
 
+\autoref{fig:vectorreadonly} shows that we are using about a hundredth of our 100 Gbps
+network bandwidth and that the prefill phase is highly CPU bound. To use the
+network bandwidth more effectively, we can increase the granularity of our
+memory allocation unit by using huge pages. \autoref{fig:vectorreadonlyhp} shows
+how using huge pages allows us to use around a fifth of our network bandwidth.
+Furthermore, a 500-fold decrease in the number of allocation units decreases
+the overal CPU cycles we spend for per-page operations in the memory allocator
+and the control and data planes.
+
 \subsection{Migrating a vector while dirtying all of its pages}
 \begin{figure}[tp]
     \begin{center}
@@ -80,24 +97,45 @@ of microseconds. This is expected as this step consists of a single RDMA SEND.
     \label{fig:vectorwriteall}
 \end{figure}
 
+\begin{figure}[tp]
+    \begin{center}
+        \input{bench-writeall-hp.pgf}
+    \end{center}
+    \caption{Migration statistics of a vector with all pages dirty (huge pages)}
+    \label{fig:vectorwriteallhp}
+\end{figure}
+
 In this micro-benchmark, we create a vector, dirty all of its pages after the
 prefill phase has finished, and then finalize the transfer. Compared to the
 clean scenario in \autoref{sec:cleanvec}, we need to spend extra time to
 retransfer the dirty pages. As we would expect, the time it takes to turn over
-the object ownership is remain unchanged, however based on the usage of the
+the object ownership remains unchanged, however based on the usage of the
 application, there will be a period during which the object is read-only on the
 sender's side and the writes will be delayed on the receiver's side. We
 explore the implications of this in \autoref{sec:evalmigfriendly} and
 \autoref{sec:evalgenericobj}.
-
 
 Although the same set of pages are sent/received during the prefill phase and
 transferring of the dirty pages, the former takes considerably longer. This
 happens because we do not need to pin the object memory to physical memory all
 over again on each side.
 
+Similar to the case with a read-only vector, we repeat the experiment with huge
+pages. \autoref{fig:vectorwriteallhp} shows the result. The result resembles
+those in \autoref{sec:cleanvec}, except here the elapsed time excluding the
+prefill duration and the dirty page transfer duration is still significant. Most
+of this time is contributed by the source machine having to execute the signal
+handler while looping over the pages and dirtying them, after the
+prefill phase and before the final transfer phase.
+
 \section{Case study: Bloom filter}
 \label{sec:evalmigfriendly}
+
+size: 800000000, 383 pages, 256 of which dirty
+latency compared to readonly: 1.4 end to end, latency not changed compared
+to the writeall case.
+
+200000 4KB pages, 60\% dirty
 
 \begin{figure}[tp]
     \begin{center}
@@ -107,10 +145,39 @@ over again on each side.
     \label{fig:bloomfilter}
 \end{figure}
 
+\begin{figure}[tp]
+    \begin{center}
+        \input{bench-bloomfilter-hp.pgf}
+    \end{center}
+    \caption{Migration timeline of a Bloom filter (huge pages)}
+    \label{fig:bloomfilterhp}
+\end{figure}
+
 \section{Case study: generic objects}
 \label{sec:evalgenericobj}
 
+\begin{figure}[tp]
+    \begin{center}
+        \input{bench-map.pgf}
+    \end{center}
+    \caption{Migration timeline of a map}
+    \label{fig:map}
+\end{figure}
+
+\begin{figure}[tp]
+    \begin{center}
+        \input{bench-map-hp.pgf}
+    \end{center}
+    \caption{Migration timeline of a map (huge pages)}
+    \label{fig:maphp}
+\end{figure}
+
+
 c++ map
+
+23/24 dirty
+
+5400/11900 4k
 
 
 
