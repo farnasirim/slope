@@ -3,9 +3,8 @@
 
 \section{Locality in distributed applications}
 Resource requirements of typical workloads in data intensive applications well surpass the
-capacity of a single machine. \TODO{application programmers sounds a bit too
-specific. What about: system designers design applications that can run on multiple
-machines ...} System designers distribute applications among clusters of
+capacity of a single machine. 
+Application programmers design distributed applications running on clusters of
 machines to
 meet the storage and computation requirements of these workloads. Therefore
 designing applications that can scale across many machines becomes important as
@@ -20,7 +19,7 @@ Let us take communication between application instances as an example.
 Instances can communicate using well-known techniques such as message passing
 or distributed shared memory, but some applications do not benefit from the
 generality of these methods even though they have to tolerate the performance
-overhead coming with the extra functionality. For example applications whose
+overhead coming with their extra functionality. For example applications whose
 computation is expressed through the MapReduce \cite{dean2008mapreduce}
 framework can rarely benefit from access to a
 global shared memory in a synchronized manner.
@@ -40,37 +39,12 @@ This is desirable because it improves access locality, as
 long as we can balance the load across the cluster. Therefore the work of
 the system designer in these systems boils down to partitioning data and
 operations to minimize cross-partition requests, and find a strategy to
-distribute the load of the partition evenly across the cluster. Let us look
-at a few examples from these types of applications.
+distribute the load of the partition evenly across the cluster.
 
-\subparagraph{Randomly partitioned in-memory distributed hash tables:} One partition or shard
-    does not require any information from other partitions to be able to
-    operate. We need to route a request to the machine that contains the
-    corresponding shard,
-    and pass the request (e.g. get or set) to it. The
-    request will be carried out internally by the shard on the data that
-    is owned by the shard and is local to the machine.
-
-    \subparagraph{Partitioning shipping orders by warehouse IDs:} during the
-    processing of an order, there might be multiple sub-systems involved,
-    but the inventory and stock of each warehouse are internal to
-    the warehouse partitions. Those parts of the requests that concern the
-    stock and inventory can be processed internally by the shard without
-    communication with other partitions.
-
-    \subparagraph{Web application user behavior statistics:} We can partition
-    the data and the supported operations (append user action,
-    query user actions, etc.) by user IDs to provide a BigTable-like
-    API \cite{chang2008bigtable}.
-    For most of
-    the user actions, the operations can be done by local access to the
-    data structures in the current user partition. To prevent hotspots when
-    storing historical data, we can aim for finer grain partitioning using
-    multiple keys. In this case we can
-    partition on user IDs and the date of the action, however operations like
-    querying the behavior of the user over the past
-    week will end up with more cross-partition accesses than the previous
-    sharding strategy where all of the data of a user lies inside one shard.
+These applications may randomly partition data (e.g. in-memory distributed
+hash tables) or partition the data based on the values from particular fields
+in the data (e.g. web application
+user behavior statistics).
 
 
 \section{Solving the locality/load balancing equation}
@@ -79,15 +53,15 @@ Most of these applications have specific data access or data sharing patterns.
 These patterns are the results of designing specialized systems for specific
 use cases like key value stores or per user statistics.
 As a result, systems designers come up with specialized data access/store schemes
-such as the one used in BigTable, which take advantage of these conditions.
+such as the one used in BigTable \cite{chang2008bigtable}, which take advantage of these conditions.
 By designing the algorithms
-in the system based on these methods they achieve better performance compared
+in the system based on these properties they achieve better performance compared
 to designing the algorithms without taking into account useful properties of
 how application data is managed.
 
 This strategy improves performance but propagates design complexities
 down to the level of the core algorithms in the application. As an example, suppose
-one machine in the above distributed hash table cluster becomes a hotspot,
+one machine in a distributed hash table cluster becomes a hotspot.
 One way of dealing with this situation would be for the system to somehow stop
 the incoming flow of requests to one of the hot shards, serialize that shard,
 send it to a machine with less load, and re-route all the requests to that node.
@@ -95,14 +69,15 @@ Apart from the unavailability of the system during the transfer, the
 serialization incurs both a performance penalty in run-time, and code complexity
 which creeps into the design of the hash table and its core algorithms.
 
-Design decisions like the above make applications harder to maintain as their
+Design decisions like this make applications harder to maintain as their
 core algorithms will become dependent on low level system properties.
 In such an application the algorithms and data structures which the system uses
 are no longer well defined black boxes that can be seamlessly improved. As a
 result, the overall design of the system will be closed to additions, and we
 will be stuck with restricted APIs and specific guarantees on how they work.
 While changing the internal algorithms, we must worry about not breaking our own
-conditions of data management.
+conditions of data management. Furthermore, our solution will be inflexible and
+won't generalize to similar problems in the future.
 
 The above situation arises when system designers design
 core algorithms with data partitioning in mind, providing solutions for two
@@ -115,7 +90,7 @@ Instead of allowing the core logic layer and the sharding layer to interfere,
 we can instead ask if it is possible to attend to each problem separately and
 reach a balance between performance improvement and programmability.
 
-Is it possible to select a subset of partitionable application types
+Is it possible to select a subset of partitionable applications
 and provide well defined machinery for their data sharing? If this data sharing
 framework supports moving the partitions between the machines with minimal
 interference with the algorithms' execution inside the partition, without
@@ -124,9 +99,9 @@ application designers can comfortably design \emph{single partitions}, instead
 of \emph{whole distributed systems}.
 
 The platform will then ensure that each partition can run correctly, while
-providing means through the use of which the application can prevent
-over-subscription of the resources of each machine in the cluster. As a result, Not only will the
-application achieve load balancing without
+allowing application partitions to migrate between machines in the cluster
+to prevent over-subscription of the resources of each machine. As a result,
+Not only will the application achieve load balancing without
 much effort,
 but also it will end up with a simpler design, with all
 of the logic for a distributed environment being managed by the framework,
@@ -292,7 +267,7 @@ how they would interface with an object-based migration platform, in a way
 that is useful in real scenarios outside of the lab environment.
 
 We then present the design of Slope, an object-based migration framework
-and its implementation in C++ using RDMA networking and present measurements
+and its implementation in C++ using RDMA networking (\hyperlink{https://github.com/farnasirim/slope}{https://github.com/farnasirim/slope}) and present measurements
 of different operations in Slope, to show how migration affects application
 performance.
 To conclude, we provide an overview of the shortcomings of Slope and
