@@ -40,11 +40,11 @@ run:
 	touch thesis.pdf
 	while true ; do make all && (diff thesis.pdf view.pdf || mv thesis.pdf view.pdf) ; sleep 2 ; done
 
-all: bench-readonly.pgf bench-writeall.pgf bench-readonly-hp.pgf  bench-writeall-hp.pgf  bench-bloomfilter.pgf  bench-bloomfilter-hp.pgf bench-map-hp.pgf bench-map.pgf
-	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
-	bibtex thesis.aux
-	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
-	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis.tex
+all: #bench-readonly.pgf bench-writeall.pgf bench-readonly-hp.pgf  bench-writeall-hp.pgf  bench-bloomfilter.pgf  bench-bloomfilter-hp.pgf bench-map-hp.pgf bench-map.pgf
+	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis
+	bibtex thesis
+	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis
+	pdflatex -enable-write18 -halt-on-error -interaction=nonstopmode thesis
 
 
 clean:
