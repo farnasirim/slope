@@ -1,8 +1,8 @@
 \chapter{Evaluation}
 \label{chap:evaluation}
 
-We go over a few use cases of Slope in real-world systems and present both
-micro-benchmarks and full benchmarks for select applications. We also discuss
+We go over a few use cases of Slope in real-world systems and present
+benchmarks for select applications. We also discuss
 the metrics that the applications using Slope can measure to get a sense of
 how much Slope is impacting their performance.
 
@@ -28,7 +28,7 @@ other metrics which more directly impact application performance, such as
 end to end migration delay or time during which the object is unusable at
 either end.
 
-\subsection{Migration friendliness of data structures}
+\subparagraph{Migration friendliness of data structures:}
 Based on how the migration process and specifically how the prefill operation
 works, objects which use their internal memory in a ``fixed'' manner, that is
 without doing much memory allocation/deallocation, are very good candidates
@@ -41,7 +41,7 @@ Similarly hash tables which use open addressing techniques such as cuckoo
 hashing scheme for their collision resolution are also good candidates for the
 same reason.
 Apart from these objects which make the best-case scenario for Slope, we also
-discuss more generic objects whose allocation/deallocation patterns are not
+discuss migrating a generic object whose allocation/deallocation patterns are not
 ideal.
 
 \section{Case study: core metrics and STL objects}
@@ -227,7 +227,7 @@ of frequent memory allocations.
 Each machine shares its processing time among the hash table partitions that
 it owns. Initially, the target partition (MP) is owned by the source machine, but half of
 the processing time of the source machine is allocated to another partition that
-it owns (throughput for this other partition omitted for brevity). As a result
+it owns (throughput for this other partition is omitted for brevity). As a result
 the source machine decides to migrate MP to the destination machine, where MP
 can use the available CPU time to achieve better throughput.
 
@@ -240,11 +240,12 @@ memory allocations.
 
 At the start of the prefill phase starting at 100ms, MP has grown to around 40MB.
 During the long prefill phases, read and write operations on MP continue and as
-a result, half of the pages in the 4KB pages, and 23 out of the 24 pages in the
+a result, half of the pages in the 4KB pages case, and 23 out of the 24 pages in the
 2MB page case are dirtied. Even though the finer grain 4KB pages detected the
-dirty memory locations more precisely, huge pages outperformed 4KB pages in all
+dirty memory locations more accurately, huge pages outperformed 4KB pages in all
 metrics in all configurations (MP size, read/write window closure duration,
-dirty page percentage, etc.) of this workload.
+dirty page percentage, etc.) of this workload, thanks to the 100Gbps network
+throughput.
 
 The end to end latency in this scenario is large but is not an important
 performance factor because the operations
