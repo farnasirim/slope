@@ -6,17 +6,6 @@ We point out the most favorable and biggest flaws of the design and
 implementation of Slope. We also discuss possible directions for Slope
 and the migratable model going forward.
 
-\paragraph{Handling failures:}
-Before dealing with failures, we need to specify what failures mean for the
-    systems that will use Slope. Depending on the type of application,
-    this could be a non-issue (e.g. in data pipelines, where tasks are
-    usually stateless and can easily be restarted) or a deal-breaker.
-    In both cases, the notion of migrating runnable objects discussed in
-    \autoref{subsec:runnable} can be a starting point for approaching failures.
-    For example migrating or rerunning objects can be thought of as natural
-    points of synchronization or taking snapshots.
-
-
 \paragraph{Routing and discovery:}
 It is unlikely that Slope can be used without an extra multiplexing
 layer on top. In listen and serve applications, a router is required to deliver

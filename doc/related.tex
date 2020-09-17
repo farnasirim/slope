@@ -1,7 +1,8 @@
-\chapter{Related Work}
+\chapter{Related Work and Background}
 \label{chap:related}
 In this section we discuss how research on similar topics relates to
-Slope and what makes Slope different.
+Slope and what makes Slope different. We also provide a brief overview of
+RDMA and discuss the hardware platform for which we are building Slope.
 
 \section{RAMP}
 RAMP\cite{memon2018ramp} uses RDMA to implement a shared storage abstraction
@@ -157,3 +158,137 @@ towards conflict resolution and handling the ``dual ownership''
 time-window, whereas in Slope we avoid dual ownership of objects
 altogether to support the notion of the objects being memory resident
 rather than view them as entries in a storage system.
+
+\section{Target hardware platform}
+RDMA networking is central to the design of Slope. Therefore we assume Slope
+is going to be run on clusters of machines interconnected with RDMA-capable
+networking hardware and equipped with a large amount of physical memory. We
+also assume that the machines have the same endianness and can run the same
+application binary.
+
+In our test cluster each machine is equipped with an Intel Xeon E5-2680 CPU,
+128 GBs of physical memory and a 100Gbps ConnectX-4 Infiniband RDMA-capable
+network adapter. We are running Linux Kernel version 4.19.49.
+
+\section{RDMA background}
+RDMA programming model turns out to be a good fit for the networking
+requirements of Slope. While we do benefit particularly from
+offloading data plane processing from the source CPU to the network device,
+RDMA networking can still be swapped out of Slope for other transports.
+
+To send or receive data using kernel-based TCP, the application thread
+is woken up multiple times by the kernel and has to call into the kernel
+repeatedly, copying all of the payload between user and kernel space buffers.
+RDMA networking prevents this by 1. allowing data to be sent/received without
+the need to copy it from/to a temporary buffer, and 2. not calling into the
+kernel on the critical path.
+
+The following paragraphs introduce several concepts in RDMA
+networking from control structures to Infiniband verbs. To keep this section
+concise and on-point, we mostly describe the Infiniband features that are used
+in Slope and skip low level details such as the role of various configuration
+variables in the setup process.
+
+An Infiniband subnet consists of hosts and switches that are interconnected
+through their Infiniband adapters or Host Control Adapters (HCA).
+Each subnet requires at least one Subnet Manager (SM) to function.
+Infiniband switches or end hosts may play the role of SM. Multiple SMs
+work in active-standby mode. Among more complicated tasks such as managing
+routing throughout the local subnet and possibly through the global Infiniband
+Fabric, one of the responsibilities of the SM is assigning unique local
+identifiers (\texttt{lid}s) to each port connected to the current subnet, not much
+different from how a DHCP server assigns unique IP addresses to each device
+that is connected to an IP network.
+
+Queue pairs (QPs) can be thought of as being analogous to sockets in TCP/IP
+networking. In our case we only use the reliable connected (RC) type of queue
+pairs which guarantees reliability and in-order delivery.
+A QP logically ``connects'' two hosts so that they can communicate using
+RDMA verbs. Each of the two hosts independently creates a QP structure. The
+QP is assigned a locally unique \texttt{qp\_num} to distinguish between the
+QPs on the same host. The two QP structures then have to be introduced to
+each other by transitioning them through multiple states, namely init, ready to
+receive, and ready to send.
+
+At certain points during these transition, each
+QP end needs to know about the \texttt{lid} of the remote Infiniband port to
+be able to identify and reach that port through the subnet. Naturally the
+remote \texttt{qp\_num} has to be known for each QP end to be able to
+distinguish and correctly select the target QP end's \texttt{qp\_num}.
+Applications need to improvise their own methods of exchanging these two
+pieces of information, typically called the out of band rendezvous and ready to
+send protocols. We use memcached for this where every participating machine
+registers the \texttt{lid} and \texttt{qp\_num} corresponding to each of its
+QPs, alongside the intended remote node of this QP under that machine's key.
+The number of machines and their registration keys
+are known at the execution time of the program by all instances. After
+publishing their information each machine goes through the keys corresponding
+to other servers and blocks until finding their QP information in memcached.
+After that each server $S$ selects the QPs whose intended remote node equals
+$S$ and with the \texttt{lid} and \texttt{qp\_num} of that QP at hand, it
+transitions the QP through the required states to make it ready to use. This
+only happens at the initialization of the cluster after which we never use
+the memcached instance again.
+
+From this point on, each machine can use any of its QPs to exchange data with
+the other end of the QP through the use of RDMA verbs. The QP APIs are
+asynchronous, meaning the application calls into the Infiniband library to
+``posts'' operations to the QPs, and ``poll'' the completion of certain events
+such as the completion of a send request.
+
+To send data using the RDMA SEND verb, the application needs to ``post'' one
+or more send Work Requests (WRs) to the send queue of a QP. Among other fields
+to control its behavior, a WR consists of one or more
+continuous memory ranges that need to be sent through a QP. Each of these
+is called a Scatter-Gatter Element (SGE). However the network device must be
+able to access the memory pages that the SGEs point to through their physical
+addresses, and those physical addresses must not change throughout the time
+that the SEND is in progress. To make sure that is the case, the addresses
+that underlie the SGEs must be subsets of Memory Regions (MRs) that we
+explicitly register with the Infiniband library. Creating an MR from a set of
+continuous memory pages will pin them in memory until the MR is
+deregistered. To process the SEND request, the network device might reference
+addresses from MRs that the SGEs point to, until that particular WR is
+processed which means we are not allowed to write to those regions during
+the time SEND is being processed. By default, a successful SEND request will
+create a CQE upon completion. The application can be notified of the completion
+of the SEND WR by polling the CQ that is associated with the QP. After receiving
+the completion, the application is free to deregister and/or write to the
+memory under the MR.
+
+For a SEND to succeed, the destination must have previously posted a suitable
+RECV request to the Receive Queue of its end of the QP. Similar to the case with SENDs,
+a RECV request takes the form of one or more receive WRs each of which
+consists of multiple SGEs, which point to local memory that is pinned using
+MRs. At the receiver, this will result in the data from the SGEs of the incoming
+SEND to be written by the network device to the memory addresses that the
+receive WR specifies through its SGEs.
+
+Together, SEND and RECV are called two-sided verbs, meaning they require
+intervention from both the sender and the receiver. In contrast, the one-sided
+READ and WRITE verbs completely bypass the remote machine's processor and do not
+produce entries in the CQs of the remote machine. To
+issue a READ or WRITE, the caller must first pass SGEs referring to local memory
+from which data will be READ, or to which data will be written, respectively.
+In each of the above we must also specify an address in the remote machine
+as the source for READ or the destination for WRITE. This address is in
+the virtual address space of the remote machine, and must be contained in an
+MR. The caller also needs the know the remote key (\texttt{rkey}) of the target
+MR in the remote machine. Similar to the case with \texttt{lid} and
+\texttt{qp\_num}, the application has to arrange for the \texttt{rkey} to be
+transferred to the caller before it can call one sided VERBS. However with the
+QPs now established, we do not necessarily need to rely on an out of band
+communication mechanism to hand off \texttt{rkey}s as they can be sent using
+RDMA SEND and RECV verbs.
+
+We also use a variant of WRITE called ``WRITE with immediate values'', which
+differs to a WRITE in that it generates a completion in the CQ of the
+remote QP.
+
+To know about which operations have been completed, applications must poll the
+Completion Queue (CQ) structure.
+Each QP is associated with one CQ. Applications may decide that some of their
+QPs share a single CQ to reduce the number of separate structures that they
+have to poll. As a result of polling the CQ, the application is handed
+Completion Queue Entries (CQEs) which reveal the source of the completion.
+

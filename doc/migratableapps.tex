@@ -155,7 +155,7 @@ steps using the returned \texttt{MigrationOperation} object.
 Certain metadata of the objects are required during the migration
 operation. To keep track of these, we wrap objects in
 migratable pointers (\texttt{mig\_ptr<T>}) before passing them to the control
-plane. migratable pointers are discussed in detail in \TODO{reference}.
+plane. migratable pointers are discussed in detail in \autoref{sec:ownershiptracking}.
 
 In addition to sending objects to other machines, the control plane is also
 responsible for receiving objects. Since objects can be migrated at any point

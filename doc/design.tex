@@ -2,8 +2,8 @@
 \label{chap:design}
 
 
-We present the design and implementation of Slope, a migration framework which
-satisfies the requirements and conditions discussed in the previous chapter.
+We present and discuss in depth the design and implementation of Slope, a migration framework which
+satisfies the requirements and conditions discussed in \autoref{chap:migratableapps}.
 
 \section{Design elements}
 \label{sec:deselem}
@@ -27,7 +27,7 @@ This reservation is done at program construction time
 We will refer to this section of the virtual
 address space as migratable memory or Slope memory. Note that mappings for
 these pages are not yet generated and therefore the size of the Slope memory
-region can be much larger than the amount of physical memory on machine.
+region can be much larger than the amount of physical memory on a machine.
 
 To synchronize accesses to memory during the migration process, we need a way
 to control accesses to the pages in Slope memory. We therefore choose to manage
@@ -283,6 +283,7 @@ in \autoref{sec:localmem} and \autoref{sec:globalmem}.
 
 \begin{figure}[t]
 \begin{lstlisting}
+template<typename T>
 using MigratableUserDefinedType =
     UserDefinedType<T, slope::memory::Allocator<T>>;
 \end{lstlisting}
@@ -364,68 +365,138 @@ composition-friendliness of using allocators classes that conform with C++ named
 requirements.
 
 
+\begin{figure}[tp]
+\begin{lstlisting}
+template <class T>
+struct Allocator {
+    // called after an object is received from a peer who migrated it
+    // owner_addr: Address of the underlying T* object
+    // memory_chunks: All segments of memory allocated under the
+    //                object identified by owner_addr
+    void adopt(owner_addr, memory_chunks) {
+        for (chunk: memory_chunks) {
+            add chunk to allocations of owner_addr
+            set owner_addr as the owner of chunk
+        }
+    }
+
+    // allocates memory of size n * sizeof(T) with the alginment of T
+    T* allocate(std::size_t n) {
+        current_object = top of contexts stack
+        if (can fit the memory in one of the pages that the
+                current_object already owns) {
+            address = free memory from the page
+        } else {
+            while (owned lease ranges do not have enough space) {
+                request new lease range
+            }
+            address = allocate memory pages from an owned lease range
+        }
+        Set the owner of address to be current object
+        Add address to the ranges owned by the current object
+        return address
+    }
+};
+\end{lstlisting}
+    \caption{ Outline of Slope memory allocator (Pseudo-code) }
+\label{fig:allocimpl}
+\end{figure}
 
 
+\autoref{fig:allocimpl} shows an outline of the API and implementation of Slope's
+memory allocator. the \texttt{adopt} function is called so that the memory
+allocator can keep the information about a newly received object.
+Should the object be migrated again, we need access to this information
+to be able to the migration correctly. No memory is allocated during the call
+to adopt.
 
-
-
-
+On line 16 in the allocate function, the allocator infers
+the owner of the memory that is being allocated to be the object whose
+address is at the top of the context stack. This is how the allocator
+associates virtual memory segments to the objects that own them. This is
+discussed in detail in \autoref{sec:ownershiptracking}.
 
 
 
 \subsection{Memory ownership tracking}
 \label{sec:ownershiptracking}
+
+\begin{figure}[tp]
+\begin{lstlisting}
+template <class T>
+class mig_ptr {
+ public:
+    template<typename ...Args>
+    mig_ptr(Args&& ...args);
+
+    T *get();
+
+    Context create_context();
+};
+\end{lstlisting}
+    \caption{ Outline of texttt{mig\_ptr}'s API }
+\label{fig:migptrimpl}
+\end{figure}
+
+
 Passing Slope's memory allocator to types is not enough.
 When an object is migrated to a different machine, we need to move all of the
 memory that it references to the destination machine and put them at their
 corresponding virtual memory addresses. This means
 that we need a mechanism to keep track of the memory that an object owns.
 
+
 We manage migratable objects through migratable pointers. The template\\
 \texttt{slope::memory::mig\_ptr<T>} represents these types. A migratable
 pointer works very similarly to a \texttt{std::unique\_ptr<T>}, with the
 main distinction that it provides methods through which we can keep track
-of the memory allocated by the underlying object. Furthermore after the
-migration, we can recreate the underlying object of type \texttt{T} from
-the migrated memory pages into a \texttt{slope::memory::mig\_ptr<T>}.
+of the memory allocated by the underlying object.
 
-Most importantly, a migratable pointer provides a \texttt{create\_context()}
-method which we must use to inform Slope of any memory allocations.
-\autoref{fig:migptrusage} shows an example usage of this. For any method call
-on type \texttt{T} that underlies the \texttt{slope::memory::mig\_ptr<T>},
-if it has a possibility of calling \texttt{allocate()} on Slope allocator, it
-must be enclosed in a context. We call this behavior ``allocating memory for
-an object''.
 
-\TODO{This is a simplified example, but for consistency, it would be good to show the object creation and the invocation of the migratable object's run() method (with the memory accesses, put and get, inside the run method...)}
+\autoref{fig:migptrimpl} summarizes \texttt{mig\_pr}'s API. Its
+constructor forwards the arguments to
+T's constructor(s). \texttt{get} retrieves the underlying object of
+type \texttt{T*}, and most importantly \texttt{create\_context}
+pushes the address of the underlying object to a thread local context stack.
+The \texttt{allocate} function of the Slope allocator (\autoref{fig:allocimpl})
+checks the top element of the context stack every time it is called to find out
+which object we are allocating memory for. When the context object that
+\texttt{create\_context} returns is destroyed (i.e. we go out of scope), the
+context stack is also popped.
+
 
 \begin{figure}[tp]
 \begin{lstlisting}
 using HashTablePartition = DistributedPartition<
     int, // key type
     int, // value type
-    slope::memory::allocator<int>
+    slope::memory::Allocator<int>
     >;
-
 int main() {
-    int key = 1, value = 2;
-
     // underlying type uses slope::memory::Allocator
     // default constructor of HashTablePartition is used
-    slope::mig_ptr<HashTablePartition> ptr{};
-
+    mig_ptr<HashTablePartition> partition;
     {
         // method called on mig_ptr
-        auto context = ptr.create_context();
-
-        // method called on the HashTablePartition through operator&
-        ptr->put(key, value);
-
+        auto context = partition.create_context();
+        // get() gets the underlying pointer, put() inserts the value
+        partition.get()->put("id", get_current_machine_id());
     } // context is invalidated as it goes out of scope
       // and destructor is called
 
-    // No memory allocation possible; no context required
-    ptr->get(key);
+    HashTableControlPlane<HashTablePartition> control_plane(
+        [](mig_ptr<HashTablePartition> partition) {
+            // No memory allocation possible in get; no context required
+            // First get() gets the underlying pointer
+            // Second get() queries the value in the partition
+            std::cout << partition.get()->get("id") << std::endl;
+        }
+    );
+    HashTableControlPlane.accept(partition);
+    auto peer_id = get_current_machine_id() == "1" ? "0" : "1";
+    auto mig_op = HashTableControlPlane.migrate(partition, peer_id);
+    // carry out the migration using mig_op ...
+    while (true) { /* wait */ }
 }
 \end{lstlisting}
 \caption{
@@ -434,6 +505,15 @@ int main() {
 \label{fig:migptrusage}
 \end{figure}
 
+\autoref{fig:migptrusage} corrects our early sketch in \autoref{fig:sketchmain}
+to show how
+ownership tracking and allocation context management fit with the control plane
+API. For any method call
+on type \texttt{T} that underlies the \texttt{slope::memory::mig\_ptr<T>},
+if it has a possibility of calling \texttt{allocate()} on Slope allocator, it
+must be enclosed in a \texttt{create\_context} call and the destruction of the
+returned context. We call this behavior ``allocating memory for
+an object''.
 
 We keep a stack of contexts as they are created and destroyed by the application.
 At each call to \texttt{allocate()}, the \texttt{mig\_ptr} whose context is at
@@ -442,7 +522,7 @@ the top of the stack will be set as the owner of the allocated memory.
 Another important purpose that the \texttt{mig\_ptr} class template serves is
 constructing the object itself. In addition to the memory allocations done
 \emph{by} the object (e.g. allocating the underlying array by \texttt{std::vector}),
-the object memory itself (\texttt{std::vector} object) must be placed in
+the object memory itself (e.g. \texttt{std::vector} object) must be placed in
 migratable memory. This is an important step since we are not necessarily able
 to construct the object elsewhere and then manually move it into the migratable
 memory.
@@ -469,16 +549,13 @@ The circular dependency arises because we are not aware of the address of the
 hash table before we allocate its memory.
 
 After creating the initialization context, we call into \texttt{allocate()}.
-Machine 1 does not yet hold any lease ranges, so it will try to ask for one.
+None of the machines yet hold any lease ranges, so they will try to ask for one.
 After looking at the current number of available lease ranges at each node,
-it will choose one of the three nodes in the cluster at random since all of them
-have an equal number of available lease ranges. Machine 2 will be selected and
-the request for a new lease will be sent to it by Machine 1. After being given
-the ownership of a lease range by Machine 2, we continue in the
-\texttt{allocate()} function. We now have 1GB of Slope memory available on
-machine 1.
+they will choose one of the nodes in the cluster at random since all of them
+have an equal number of available lease ranges. After being given
+the ownership of a lease range we continue in the \texttt{allocate()} function.
 
-We then allocate a page from the newly owned lease range (assuming the size of
+We then allocate a page from the newly owned lease range on both machines (assuming the size of
 a \texttt{HashTablePartition} is much less than a single memory page), and assign the
 page and the allocated memory inside the page to the object that is being
 created by breaking the circular dependency which is described above.
@@ -486,10 +563,10 @@ We return from the \texttt{allocate()} function and the initialization context
 will be removed from the context stack.
 
 We return from the constructor of the \texttt{HashTablePartition} and then
-the migratable pointer. The call to \texttt{create\_context()} on line 16
-will place
-\texttt{ptr}'s context at the top of the context stack. As a consequence, all of the
-Slope memory allocations will be assigned to \texttt{ptr} until further change
+the migratable pointer. The call to \texttt{create\_context()} on line 12
+will place each
+\texttt{partition}'s context at the top of the context stack. As a consequence, all of the
+Slope memory allocations will be assigned to \texttt{partition} until further change
 to the context stack. We call into the \texttt{put()} member function, which
 results in a call to \texttt{allocate()}. More memory will be allocated from
 the page that embodies the \texttt{HashTablePartition} object since that page
@@ -498,20 +575,11 @@ have allocated one or more new pages to accommodate the request.
 
 With its context present at the top of
 the context stack,
-\texttt{ptr} will own the newly allocated memory. Afterwards the context will
-go out of scope, resulting in \texttt{ptr}'s context being removed from the
-context stack, leaving it empty.
-The call to \texttt{get()} will not invoke any of the Slope functions.
-
-It is important to note that allocated memory is not necessarily mapped to
-physical memory. As an example if the \texttt{ptr} object from
-\autoref{fig:migptrusage} is migrated to Machine 3, its underlying memory
-will remain allocated from the standpoint of Machine 1 which is responsible for
-the lease range under \texttt{ptr}.
-However Machine 1 will unmap those memory pages after the migration.
-In contrast, on Machine 3, those pages will indeed be mapped to
-physical memory after the migration.
-
+\texttt{partition} will own the newly allocated memory. Afterwards the context will
+go out of scope, resulting in \texttt{partition}'s context being removed from the
+context stack, leaving it empty. After the migrations take place, the \texttt{get()}
+functions of the two partitions will be called, but they do not require
+being enclosed contexts as they do not allocate any memory.
 
 \subsection{Choice of platform}
 Allowing the application's data structures to rely on virtual memory
@@ -546,141 +614,14 @@ top of JVM. On the other hand, such a system can provide an API that is simpler
 to use for the programmers since many of the house keeping tasks (e.g.
 \texttt{create\_context()}) are already done or partially taken care of by the JVM.
 
-\TODO{I don't think you previously discussed your assumptions on the machine capabilities - at least, not all in one place. You are certainly assuming they have RDMA-capable networking hardware, and it is reasonable to assume that such machines are also equipped with large physical memory. You are also assuming they are homogenous enough to all run the same application binary and access the objects without serializing/deserializing (so, same byte order). You also assume there may be some heterogeneity (i.e., some machines equipped with accelerators like GPUs). I think these are all reasonable assumptions, but you should pull them all together (in the introduction) and explain clearly the target environment for a system like Slope. }
-
-\TODO{
-    You need to provide more information on the implementation of Slope itself, not just the usage. Show the complete API for the migptr with a brief description of each of its methods. For the most important, createcontext method, give its pseudocode. Similarly, give the pseudocode for the custom allocate and deallocate functions. }
-
-\section{RDMA background}
-RDMA programming model turns out to be a good fit for the networking
-requirements of Slope. While we do benefit particularly from
-offloading data plane processing from the source CPU to the network device,
-RDMA networking can still be swapped out of Slope for other transports.
-
-To send or receive data using kernel-based TCP, the application thread
-is woken up multiple times by the kernel and has to call into the kernel
-repeatedly, copying all of the payload between user and kernel space buffers.
-RDMA networking prevents this by 1. allowing data to be sent/received without
-the need to copy it from/to a temporary buffer, and 2. not calling into the
-kernel on the critical path.
-
-The following paragraphs introduce several concepts in RDMA
-networking from control structures to Infiniband verbs. To keep this section
-concise and on-point, we mostly describe the Infiniband features that are used
-in Slope and skip low level details such as the role of various configuration
-variables in the setup process.
-
-An Infiniband subnet consists of hosts and switches that are interconnected
-through their Infiniband adapters or Host Control Adapters (HCA).
-Each subnet requires at least one Subnet Manager (SM) to function.
-Infiniband switches or end hosts may play the role of SM. Multiple SMs
-work in active-standby mode. Among more complicated tasks such as managing
-routing throughout the local subnet and possibly through the global Infiniband
-Fabric, one of the responsibilities of the SM is assigning unique local
-identifiers (\texttt{lid}s) to each port connected to the current subnet, not much
-different from how a DHCP server assigns unique IP addresses to each device
-that is connected to an IP network.
-
-Queue pairs (QPs) can be thought of as being analogous to sockets in TCP/IP
-networking. In our case we only use the reliable connected (RC) type of queue
-pairs which guarantees reliability and in-order delivery.
-A QP logically ``connects'' two hosts so that they can communicate using
-RDMA verbs. Each of the two hosts independently creates a QP structure. The
-QP is assigned a locally unique \texttt{qp\_num} to distinguish between the
-QPs on the same host. The two QP structures then have to be introduced to
-each other by transitioning them through multiple states, namely init, ready to
-receive, and ready to send.
-
-At certain points during these transition, each
-QP end needs to know about the \texttt{lid} of the remote Infiniband port to
-be able to identify and reach that port through the subnet. Naturally the
-remote \texttt{qp\_num} has to be known for each QP end to be able to
-distinguish and correctly select the target QP end's \texttt{qp\_num}.
-Applications need to improvise their own methods of exchanging these two
-pieces of information, typically called the out of band rendezvous and ready to
-send protocols. We use memcached for this where every participating machine
-registers the \texttt{lid} and \texttt{qp\_num} corresponding to each of its
-QPs, alongside the intended remote node of this QP under that machine's key.
-The number of machines and their registration keys
-are known at the execution time of the program by all instances. After
-publishing their information each machine goes through the keys corresponding
-to other servers and blocks until finding their QP information in memcached.
-After that each server $S$ selects the QPs whose intended remote node equals
-$S$ and with the \texttt{lid} and \texttt{qp\_num} of that QP at hand, it
-transitions the QP through the required states to make it ready to use. This
-only happens at the initialization of the cluster after which we never use
-the memcached instance again.
-
-From this point on, each machine can use any of its QPs to exchange data with
-the other end of the QP through the use of RDMA verbs. The QP APIs are
-asynchronous, meaning the application calls into the Infiniband library to
-``posts'' operations to the QPs, and ``poll'' the completion of certain events
-such as the completion of a send request.
-
-To send data using the RDMA SEND verb, the application needs to ``post'' one
-or more send Work Requests (WRs) to the send queue of a QP. Among other fields
-to control its behavior, a WR consists of one or more
-continuous memory ranges that need to be sent through a QP. Each of these
-is called a Scatter-Gatter Element (SGE). However the network device must be
-able to access the memory pages that the SGEs point to through their physical
-addresses, and those physical addresses must not change throughout the time
-that the SEND is in progress. To make sure that is the case, the addresses
-that underlie the SGEs must be subsets of Memory Regions (MRs) that we
-explicitly register with the Infiniband library. Creating an MR from a set of
-continuous memory pages will pin them in memory until the MR is
-deregistered. To process the SEND request, the network device might reference
-addresses from MRs that the SGEs point to, until that particular WR is
-processed which means we are not allowed to write to those regions during
-the time SEND is being processed. By default, a successful SEND request will
-create a CQE upon completion. The application can be notified of the completion
-of the SEND WR by polling the CQ that is associated with the QP. After receiving
-the completion, the application is free to deregister and/or write to the
-memory under the MR.
-
-For a SEND to succeed, the destination must have previously posted a suitable
-RECV request to the Receive Queue of its end of the QP. Similar to the case with SENDs,
-a RECV request takes the form of one or more receive WRs each of which
-consists of multiple SGEs, which point to local memory that is pinned using
-MRs. At the receiver, this will result in the data from the SGEs of the incoming
-SEND to be written by the network device to the memory addresses that the
-receive WR specifies through its SGEs.
-
-Together, SEND and RECV are called two-sided verbs, meaning they require
-intervention from both the sender and the receiver. In contrast, the one-sided
-READ and WRITE verbs completely bypass the remote machine's processor and do not
-produce entries in the CQs of the remote machine. To
-issue a READ or WRITE, the caller must first pass SGEs referring to local memory
-from which data will be READ, or to which data will be written, respectively.
-In each of the above we must also specify an address in the remote machine
-as the source for READ or the destination for WRITE. This address is in
-the virtual address space of the remote machine, and must be contained in an
-MR. The caller also needs the know the remote key (\texttt{rkey}) of the target
-MR in the remote machine. Similar to the case with \texttt{lid} and
-\texttt{qp\_num}, the application has to arrange for the \texttt{rkey} to be
-transferred to the caller before it can call one sided VERBS. However with the
-QPs now established, we do not necessarily need to rely on an out of band
-communication mechanism to hand off \texttt{rkey}s as they can be sent using
-RDMA SEND and RECV verbs.
-
-We also use a variant of WRITE called ``WRITE with immediate values'', which
-differs to a WRITE in that it generates a completion in the CQ of the
-remote QP.
-
-To know about which operations have been completed, applications must poll the
-Completion Queue (CQ) structure.
-Each QP is associated with one CQ. Applications may decide that some of their
-QPs share a single CQ to reduce the number of separate structures that they
-have to poll. As a result of polling the CQ, the application is handed
-Completion Queue Entries (CQEs) which reveal the source of the completion.
-
 
 \section{Architecture}
 At a high level, Slope consists of a control plane, responsible for carrying out
 different phases of the migration operation and providing the means for the
-servers to send and receive metadata to each other, a data plane, in this case
-over RDMA which handles sending and receiving memory pages,
-and a specialized distributed memory management scheme, described earlier in the
-chapter. Slope's migration protocol is built atop these sub-systems.
+servers to send and receive metadata to each other, an RDMA data plane
+which handles sending and receiving memory pages,
+and a specialized distributed memory management scheme, discussed in 
+\autoref{sec:globalmem}. Slope's migration protocol is built atop these sub-systems.
 
 % We have implemented the control plane and the data plane using
 % RDMA over Infiniband because of how well the benefits of RDMA networking
