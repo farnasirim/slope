@@ -194,7 +194,9 @@ int main() {
     HashTableControlPlane.accept(partition);
 
     auto peer_id = get_current_machine_id() == "1" ? "0" : "1";
-    HashTableControlPlane.mig_send(partition, peer_id);
+    auto mig_op = HashTableControlPlane.migrate(partition, peer_id);
+
+    // carry out the migration using mig_op ...
 
     while (true) { /* wait */ }
 }
@@ -226,9 +228,11 @@ migration platform by calling the \texttt{accept} function which in turn calls
 the \texttt{run\_} which we had previously passed to the control plane. Therefore
 after calling accept, each machine can see its own ID written to stdout.
 
-On line 12 each machine calculates the ID of its peer and on line 13, sends
-its own \texttt{partition} object to the peer. Each object will eventually be
-received by the receiver thread ran by the control plane on the other machine.
-Each object will be passed to \texttt{run\_} after it reaches its destination,
-meaning that each of the machines will now see the ID of their peer writted
+On line 12 each machine calculates the ID of its peer and on line 13, creates
+a migration object for sending
+its own \texttt{partition} object to the peer. After carrying out the migration
+operation, each object will eventually be
+received by the receiver thread of the control plane on the opposite machine.
+Each object will be passed to \texttt{run\_} after it reaches the destination,
+meaning that each of the machines will now see the ID of their peer written
 to their stdout.
