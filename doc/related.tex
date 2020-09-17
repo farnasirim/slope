@@ -1,40 +1,55 @@
 \chapter{Related Work}
 \label{chap:related}
 In this section we discuss how research on similar topics relates to
-Slope, what makes Slope different, and how ideas from prior work across
-multiple categories can be incorporated into Slope in the future.
+Slope and what makes Slope different.
 
 \section{RAMP}
-Slope borrows the notion of shared address spaces from RAMP
-\cite{memon2018ramp}. This closely relates RAMP and Slope and therefore
-a rundown of the differences between the two systems can be helpful.
+RAMP\cite{memon2018ramp} uses RDMA to implement a shared storage abstraction
+for distributed applications. They target loosely coupled applications in which
+strong consistency guarantees provide little value, while imposing considerable
+performance overheads. Through the use of RDMA they allow applications to engage in
+occasional coordination operations by sending and receiving in-memory
+``containers''.
+
+Containers will are moved across machines, taking the data structures
+that they embody with them. To be able to continue using these objects on the
+destination machine, we have to make sure that they end up at the exact same
+virtual memory addresses as they were on the source. To address this need,
+RAMP uses a shared virtual address space model. Slope uses RAMP's notion of
+shared address space. This closely relates
+RAMP and Slope and therefore a rundown of the differences between the two
+systems can be helpful.
 
 \paragraph{Programmability:}
+
 Slope makes data structures or more generally, self-contained units of
 work migratable in a black box fashion, without forcing modifications to
 their implementations in existing applications.
 This means that any C++ entity which is capable of using a custom
 allocator, including STL containers, can be made migratable through Slope
-with almost zero extra programming effort. Furthermore Slope benefits
+with little programming effort. In less than 10 lines of code an application
+programmer can create
+migratable entities from
+allocator aware data structures (e.g. \texttt{std::vector>}) and migrate them to
+a second machine. Furthermore Slope benefits
 from the composition friendliness of the objects that conform to C++ 
 allocator named requirement, making it easy to create complex migratable
 types from simple building blocks.
 
-RAMP in contrast not only discusses the
-migration of memory segments,
-but also uses a stateful memory allocator which makes it
+RAMP in contrast only discusses migration in the granularity of memory segments
+(and not C++ objects), and uses a stateful memory allocator which makes it
 backwards incompatible with existing C++ software.
 
 \paragraph{Usability:}
 We present a programming model for migratable objects which makes them
-usable in at least two broad families of applications as discussed in
+usable in listen and server applications as discussed in
 \autoref{sec:api}, showing how this model can be used for high performance
 applications in the real world.
 
-On the other hand, RAMP introduces a bare bones memory segment migration
-platform which outside of a controlled experiment will be at most as
-useful as an RDMA-based transport, if at all usable,
-because of the reasons discussed in \autoref{subsec:sendrecmig}.
+On the other hand, RAMP provides a bare bones memory segment migration
+platform without introducing the semantics that can make it useful in the real world.
+For example it remains unclear how two application instances would come to
+agree about a migration taking place outside of a controlled experiment.
 
 \paragraph{Migration performance:}
 Based on the type of workload, Slope benefits from prefilling the
@@ -45,13 +60,12 @@ quicker convergence to the steady state throughput.
 RAMP only starts transferring the contents of a memory segment after
 the segment ownership has been transferred. This results in its
 convergence period or its window of unresponsiveness to go up to hundreds
-of milliseconds for a 128 MB segment, while based on the type of
-workload, Slope can finish the migration with as low as 10us with
-negligible throughput distortion.
+of milliseconds for a 128 MB segment, while Slope can keep this window as
+as short as $50\mu$s.
 
 In Slope the number of parallel migrations between \emph{each pair}
 of machines at any given time is only bounded by the number of receives
-pre-posted to their queue pairs, whereas in RAMP, at any point in time
+pre-posted to their RDMA queue pairs, whereas in RAMP, at any point in time
 there can be at most a single migration in the \emph{whole cluster}.
 
 
@@ -59,16 +73,24 @@ there can be at most a single migration in the \emph{whole cluster}.
 Slope uses pooled memory allocation and lazy deallocations to handle
 memory allocation in a peer-to-peer fashion.
 
-RAMP however uses a Zookeeper cluster to keep track of memory allocations.
-Not only relying on an external service during run-time, which possibly
-operates on a slower network performs worse under heavy load, but also it
-is susceptible to contention when multiple servers race to allocate memory segments.
+RAMP uses a Zookeeper cluster to keep track of memory allocations.
+RAMP not only relies on an external service which possibly
+operates on a slower network, but also is susceptible to contention
+when multiple servers race to allocate memory segments.
 
 
 \section{Shared memory and RDMA based systems}
 Herd \cite{kalia2016designguidelines} discusses guidelines that can be
 used by RDMA applications for improved performance. We used many of their
 insights in our implementation.
+
+
+Signal handlers are an important part of the design of TreadMarks
+\cite{amza1996treadmarks}. They provide an on-demand lazy release
+consistency model by flushing dirty cache lines on-demand. However the main
+goal of TreadMarks is minimizing
+network communication, which is not a suitable goal for Slope given that we
+want to optimize our design for high throughput Infiniband hardware.
 
 Multiple systems have provided designs
 for high performance RPC, transaction processing, or shared memory over
@@ -103,6 +125,22 @@ to achieve high throughput transaction processing.
 Hotpot \cite{Shan2017distributed} and Octopus \cite{Lu2017rdmadistributed}
 use persistent memory to build distributed shared memory.
 
+\section{Distributed memory allocation}
+Distributed memory allocation problem generally arises in the form of managing
+a globally accessible, uniform resource in a distributed manner. As a result
+many of these systems provide transactional APIs for allocating memory,
+whereas in
+Slope, the shared virtual address space dictates that the global address space
+is non-uniform with every machine being responsible for a fixed part of it.
+
+Even though the overall problems that these systems discuss are different from
+what we face in Slope, we can reuse their solutions to specific sub-problems that
+also appear in Slope. X10 \cite{charles2005x10} provides distributed memory
+abstraction in the language level and their approach might be useful for
+future extensions in Slope's API. Sinfonia \cite{aguilera2007sinfonia} uses
+two phase commits to maintain consistency and Argo \cite{kaxiras2015turning}
+optimizes for making DSM control plane decisions locally at each node, both of
+which share sub-problems with Slope.
 
 \section{Database migration and replication}
 Derecho \cite{jha2019derecho} aims to provide state machine replication
