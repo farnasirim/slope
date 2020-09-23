@@ -8,8 +8,10 @@ satisfies the requirements and conditions discussed in \autoref{chap:migratablea
 \section{Design elements}
 \label{sec:deselem}
 Slope has to provide features such as transferring objects without serialization
-and deserialization that are rather unusual in more generic systems. We
-therefore have to carefully introduce ideas to deliver these specific capabilities.
+and deserialization that are unusual in more generic systems.
+Memory management is key to deliver these capabilities. Specifically, we must
+carefully consider the problems of local memory layout, internal program memory
+allocators, distributed memory management, and memory ownership tracking.
 
 \subsection{Local memory layout}
 \label{sec:localmem}
@@ -18,10 +20,10 @@ memory layout to store migratable objects.
 Similar to RAMP \cite{memon2018ramp}, each program instance reserves a
 specific contiguous part of its virtual memory address space. The size of this
 segment must be at least equal to the \emph{sum} of maximum physical memory that the
-application plans to devote to migratable objects, this can be
+application plans to devote to migratable objects, which can be
 as high as the total amount of physical memory in the cluster.
 The starting address of this memory range is the same address on all machines.
-This reservation is done at program construction time
+This reservation is done at program initialization time
 (i.e. before \texttt{main()}).
 
 We will refer to this section of the virtual
@@ -32,7 +34,8 @@ region can be much larger than the amount of physical memory on a machine.
 To synchronize accesses to memory during the migration process, we need a way
 to control accesses to the pages in Slope memory. We therefore choose to manage
 Slope memory by 4KB page granularity as this is the smallest unit of control
-for setting memory page protection mappings.
+for setting memory page protection mappings. We also support other page sizes
+if supported by the MMU and the OS (e.g., 2MB huge pages on x86/Linux).
 
 \begin{figure}[t]
 \centering
@@ -59,7 +62,8 @@ that it references and the object would continue to ``work'' in its new
 residence. This in essence describes a migration operation and is how we will
 eliminate the need to serialize and deserialize these objects.
 
-This however requires multiple conditions to be in place, and multiple
+Migrating objects to the same virtual addresses on different machines,
+however, requires multiple conditions to be in place, and multiple
 housekeeping tasks to be taken care of. For example the object must not have
 any references to resources falling outside of the migratable memory. These
 could be objects in non-migratable memory, or file descriptors, which refer
@@ -74,7 +78,7 @@ the above
 issues.
 
 
-\subsubsection{fundamental requirement of fixed addresses}
+\subsubsection{Fundamental requirement of fixed addresses}
 \label{sec:fixedfundamental}
 \begin{figure}[tp]
 \begin{lstlisting}
@@ -106,8 +110,7 @@ int main() {
 
 
 
-It is important to note that the requirement of
-placing Slope memory on the same virtual address in all machines is,
+Placing Slope memory on the same virtual address in all machines is,
 unfortunately, a fundamental requirement. \autoref{fig:localmemorymanagementfundamental}
 shows an example of why this is the case.
 
@@ -118,7 +121,7 @@ Lines $1-8$ show the creation of a hash
 
     At this point, from the viewpoint of
     \texttt{the\_map}, \texttt{the\_vector} has ``moved'', effectively shifting its start
-    address to a new virtual address. \texttt{the\_map} has no way of figuring out
+    address to a new virtual address, but \texttt{the\_map} has no way of figuring out
     the new address and no way of translating its address dependencies.
     This means the address of the first element of \texttt{the\_vector} will
     change after executing line $16$, causing the assert in line $17$ to
@@ -160,9 +163,9 @@ the second call to \texttt{push\_back()} at line $6$ changes \texttt{\&the\_vect
 however this will not pose a problem since no object depends on this address
 value apart from \texttt{the\_vector}.
 
-The implication is as long as the
+The implication is that as long as the
 application has any means of referencing the underlying virtual address of any
-of its resources, its correct execution may end up depending on that address
+of its resources, its correct execution may depend on that address
 staying the same at every point during the execution of the program. Therefore
 migrating an object without serialization and deserialization to another
 machine (process)
@@ -182,7 +185,7 @@ the ownership of the first $m$ bytes of memory to the first machine, the
 second $m$ bytes to the second machine and so on, such that the $i$th machine
 owns the $i$th $\frac{1}{n}$ of Slope memory.
 
-We can simplify the distributed ownership of memory if we only allow the
+We can simplify the distributed allocation of memory if we only allow the
 machines to allocate memory from the section that they own, however this may
 result in memory address load imbalance. For example if one machine keeps
 allocating objects and then quickly migrates them to the other machines, the
@@ -208,11 +211,11 @@ between the allocated addresses across the cluster.
 \end{figure}
 
 
-We divide the Slope memory to sections that we call lease ranges. Each lease
+We divide the Slope memory into sections that we call lease ranges. Each lease
 range must be fully contained in one machine's $\frac{1}{n}$ of memory.
 Lease ranges are the units of distributed ownership of Slope memory.
 \autoref{fig:leaserange} shows placement of lease ranges
-in slope memory.
+in Slope memory.
 
 
 At any point, each lease range is owned by at most
@@ -268,8 +271,8 @@ a consensus box to track global memory allocations, but can also avoid
 contention when multiple machines need to acquire new lease ranges with
 little tweaks. For example each machine can randomly select to request the
 lease from one of the top $k$ least occupied machines, instead of selecting
-the least occupied machine, avoiding hotspots when multiple machine requests
-for leases at the same time.
+the least occupied machine, avoiding hotspots when multiple machines request
+leases at the same time.
 
 \subsection{Memory allocator}
 \label{sec:platform}
@@ -294,9 +297,10 @@ using MigratableUserDefinedType =
 \end{figure}
 
 Any C++ type which accepts an allocator and uses it for all of its memory
-allocations (i.e. \texttt{AllocatorAwareContainer} named requirement in the standard)
+allocations (i.e. \emph{AllocatorAwareContainer} \cite{cppnamedreqallocaware}
+named requirement in the standard)
 can be passed Slope's allocator. \autoref{fig:migratableuserdefined}
-demonstrates how a preexisting well written user defined type can be
+demonstrates how a preexisting well-written user-defined type can be
 passed Slope's allocator without the need to change its internal implementation.
 
 \begin{figure}[t]
@@ -361,7 +365,7 @@ A possible implementation for the \texttt{UserDefinedType} shown in
 The class uses the allocator type passed to it to carry out any memory
 allocations. Notice how the allocator can be conveniently passed down to the
 class members (e.g., \texttt{std::vector<T, Allocator>}), showing the
-composition-friendliness of using allocators classes that conform with C++ named
+composition-friendliness of using allocator classes that conform with C++ named
 requirements.
 
 
@@ -404,13 +408,13 @@ struct Allocator {
 
 
 \autoref{fig:allocimpl} shows an outline of the API and implementation of Slope's
-memory allocator. the \texttt{adopt} function is called so that the memory
+memory allocator. The \texttt{adopt} function is called so that the memory
 allocator can keep the information about a newly received object.
 Should the object be migrated again, we need access to this information
-to be able to the migration correctly. No memory is allocated during the call
-to adopt.
+to be able to perform the migration correctly. No memory is allocated during the call
+to \texttt{adopt}.
 
-On line 16 in the allocate function, the allocator infers
+On line 16 in the \texttt{allocate} function, the allocator infers
 the owner of the memory that is being allocated to be the object whose
 address is at the top of the context stack. This is how the allocator
 associates virtual memory segments to the objects that own them. This is
@@ -453,9 +457,9 @@ main distinction that it provides methods through which we can keep track
 of the memory allocated by the underlying object.
 
 
-\autoref{fig:migptrimpl} summarizes \texttt{mig\_pr}'s API. Its
+\autoref{fig:migptrimpl} summarizes \texttt{mig\_ptr}'s API. Its
 constructor forwards the arguments to
-T's constructor(s). \texttt{get} retrieves the underlying object of
+T's constructor(s), \texttt{get} retrieves the underlying object of
 type \texttt{T*}, and most importantly \texttt{create\_context}
 pushes the address of the underlying object to a thread local context stack.
 The \texttt{allocate} function of the Slope allocator (\autoref{fig:allocimpl})
@@ -582,13 +586,14 @@ functions of the two partitions will be called, but they do not require
 being enclosed in contexts as they do not allocate any memory.
 
 \subsection{Choice of platform}
-Allowing the application's data structures to rely on virtual memory
-addresses directly, raises issues that we discussed in \ref{sec:deselem}. Many
+Allowing the application's data structures 
+to rely directly on virtual memory addresses raises issues 
+that we discussed in \ref{sec:deselem}. Many
 of these could have been prevented if we had used a programming language such
 as Java, which takes away this direct access, making the objects relocatable.
 
 Even though Java provides certain features for portability and compatibility,
-For some applications the overhead of being run in a managed environment
+for some applications the overhead of being run in a managed environment
 (e.g., under a garbage collector) is intolerable. A typical family of these
 applications is distributed transaction
 processing engines which includes Silo \cite{tu2013silo}, DrTM \cite{drtm2017},
@@ -638,7 +643,7 @@ will always prevent the sender from blocking.
 
 Each machine immediately reposts
 the consumed read request after receiving a completion, which further ensures
-that the presence of read requests at every queue end. After that a request
+the presence of read requests at every queue end. After that a request
 flow starts during which the two machines will go back and forth using other
 established queue pairs to carry out the operation.
 
@@ -680,11 +685,11 @@ established queue pairs to carry out the operation.
 \subsection{Data plane}
 The data plane is used to transfer contents of pages of Slope
 memory from one machine to the same virtual page addresses in another node.
-The role of the data plane is discussed in detail in \ref{sec:migrationprotocol}.
+The role of the data plane is discussed in detail in \autoref{sec:migrationprotocol}.
 It is responsible for the \emph{prefill} operation, during which it will
 transfer pages of memory, but also keep track of any changes made to them on
 the source, and the \emph{transfer} operation, which corrects the discrepancies
-resulted from writes to the source memory during the prefill phase by
+resulting from writes to the source memory during the prefill phase by
 retransferring the affected pages.
 
 % relaxed consistency requirements. Transfer operation follows shortly, during
@@ -713,10 +718,11 @@ of Slope at different stages during the migration timeline.
 \end{figure}
 
 We observe the lifetime of a migratable data structure from the point it is
-created until after we finish migrating it to another node. As discussed
-later in the section in detail, throughout the migration
+created until after we finish migrating it to another node.
+Throughout the migration
 there are certain conditions that need to be satisfied by the application
-for the migration operation to finish correctly.
+for the migration operation to finish correctly. We discuss these conditions
+in detail alongside the steps in the migration protocol.
 
 \subsubsection{Object creation}
 During this phase the source machine calls into the Slope library multiple
