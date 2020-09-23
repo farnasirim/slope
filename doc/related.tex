@@ -12,13 +12,24 @@ performance overheads. Through the use of RDMA they allow applications to engage
 occasional coordination operations by sending and receiving in-memory
 ``containers''.
 
-Containers will are moved across machines, taking the data structures
-that they embody with them. To be able to continue using these objects on the
-destination machine, we have to make sure that they end up at the exact same
+Containers can be moved across machines, taking the data structures
+that they embody with them. To allow the application to continue using these
+objects on the destination machine, RAMP has to move them such that they
+end up at the exact same
 virtual memory addresses as they were on the source. To address this need,
-RAMP uses a shared virtual address space model. Slope uses RAMP's notion of
-shared address space. This closely relates
-RAMP and Slope and therefore a rundown of the differences between the two
+RAMP uses a shared virtual address space model.
+
+In RAMP, a machine \emph{owns} a container when the container can be accessed
+(written to and read from)
+on that machine and therefore nowhere else. A machine can migrate a container
+that it \emph{owns} to another machine. At some point during the migration, the
+source machine gives up the ownership and after a brief period of unavailability
+of the container, the destination machine will be the new owner of the container.
+
+Slope uses RAMP's notion of shared address space. We use different semantics
+for managing ownership to improve performance and responsiveness of the application
+during the migration. These similarities closely relate
+RAMP and Slope and therefore an overview of the differences between the two
 systems can be helpful.
 
 \paragraph{Programmability:}
