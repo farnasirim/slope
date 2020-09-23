@@ -1024,7 +1024,7 @@ to the destination. This message will also hand over the ownership
 of the target object to the destination.
 
 \paragraph{Destination} is notified that it has been given the ownership of
-the object and is clear to call the \texttt{run\_()} function of the object,
+the object and is clear to call the \texttt{run()} function of the object,
 but also needs to re-pull the dirty pages whose addresses are attached to the
 request since the contents of these pages on the destination machine are
 outdated.

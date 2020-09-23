@@ -163,18 +163,18 @@ in time, we must be able to handle incoming objects asynchronously. Upon
 creation, the control plane creates a thread to process incoming migrations.
 
 To give the applications control over what happens to an object after it is
-received, Slope will call the function object \texttt{run\_}, passing in the
+received, Slope will call the function object \texttt{run}, passing in the
 received object. The application programmer passes this function to Slope upon
 constructing the control plane. In addition to being called when an object is
-received, the \texttt{run\_} function is also called when we introduce an object
+received, the \texttt{run} function is also called when we introduce an object
 into the control plane by calling \texttt{accept}. The reason for this behavior
-is that \texttt{run\_} is responsible for initializing (``running'') a partition.
+is that \texttt{run} is responsible for initializing (``running'') a partition.
 This allows the partitions to be seamlessly initialized on the machine where they
 are created.
 
 
 In the hash table scenario, a typical
-implementation of the \texttt{run\_} function would register the newly received
+implementation of the \texttt{run} function would register the newly received
 partition in the routing system, such that it can answer the incoming queries.
 As a result each application instance can receive hash table partitions from
 other instances and will correctly add them to the circuit to listen for queries.
@@ -227,7 +227,7 @@ send objects to other machines.
 
 On line 10, each machine introduces its \texttt{partition} object to the
 migration platform by calling the \texttt{accept} function which in turn calls
-the \texttt{run\_} which we had previously passed to the control plane. Therefore
+the \texttt{run} which we had previously passed to the control plane. Therefore
 after calling \texttt{accept}, each machine can see its own ID written to stdout.
 
 On line 12 each machine calculates the ID of its peer and on line 13, creates
@@ -235,7 +235,7 @@ a migration object for sending
 its own \texttt{partition} object to the peer. After carrying out the migration
 operation, each object will eventually be
 received by the receiver thread of the control plane on the opposite machine.
-Each object will be passed to \texttt{run\_} after it reaches the destination,
+Each object will be passed to \texttt{run} after it reaches the destination,
 meaning that each of the machines will now see the ID of their peer written
 to their stdout.
 
