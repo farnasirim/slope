@@ -2,10 +2,10 @@
 \label{chap:migratableapps}
 
 In this chapter we introduce migration-friendly applications and pinpoint
-their properties. Later we conclude that
-we must somehow step around serialization/deserialization of these objects for
-performance and programmability reasons, and ``migration'' becomes
-synonymous with ``sending without serialization/deserialization''.
+their properties. We conclude that
+we must somehow avoid serialization/deserialization of these objects for
+performance and programmability reasons, and we define ``migration'' as
+``transferring without serialization/deserialization''.
 We also discuss how the
 application code interacts with these objects before or after the migration.
 Takeaways from this chapter will be the design goals and the functional
@@ -77,7 +77,7 @@ A randomly sharded distributed key-value store is
 an example of listen and serve applications, where the
 partitions of the key-value store naturally map to the partitions in this
 model. In the simplest case, each partition listens to serve the incoming
-get and set requests. Each partition works independently and would continue to
+\emph{get} and \emph{set} requests. Each partition works independently and would continue to
 work if we somehow moved it to a different machine.
 
 
@@ -96,7 +96,7 @@ migration of an object until it is successfully migrated to its
 destination. We need to keep the migration delay small since such a delay
 is likely to cause a performance penalty for the application.
 
-On the other hand, Minimizing end to end latency may not be the main priority of all applications.
+On the other hand, minimizing end-to-end latency may not be the main priority of all applications.
 For example in the case of virtual machine migration, Liu \textit{et al}$.$ \cite{vmliu}
 propose a pre-copy approach resulting in a longer migration time than a stop
 and go strategy, but their approach keeps the VM responsive during the transfer.
@@ -114,11 +114,11 @@ may break the preconditions of the custom networking protocol.
 
 We therefore aim for zero modifications to the
 internals of the applications and minimal additions to the API of their
-units of computation. That means if the system designer has already come up
+units of computation. That means if the application designer has already come up
 with a way to partition data and computation into units that can run
 independently on possibly different machines, it should be easy to
-integrate the migration platform into the system to make those units
-migratable and balance the application load. Furthermore Similarly the
+integrate the migration platform into the application to make those units
+migratable and balance the application load. Furthermore the
 application programmer should not need to worry about breaking the communication
 protocol when she makes changes to the internal algorithms in the system.
 
@@ -130,9 +130,9 @@ protocol when she makes changes to the internal algorithms in the system.
 template <typename T>
 class ControlPlane {
  private:
-  std::function<void(mig_ptr<T>)> run_;
+  std::function<void(mig_ptr<T>)> run;
  public:
-  ControlPlane(std::function<void(mig_ptr<T>)> run): run_(run) { }
+  ControlPlane(std::function<void(mig_ptr<T>)> run_f): run_(run_f) { }
   MigrationOperation migrate(mig_ptr<T> p, Node destination);
   void accept(mig_ptr<T> p);
 };
@@ -155,7 +155,7 @@ steps using the returned \texttt{MigrationOperation} object.
 Certain metadata of the objects are required during the migration
 operation. To keep track of these, we wrap objects in
 migratable pointers (\texttt{mig\_ptr<T>}) before passing them to the control
-plane. migratable pointers are discussed in detail in \autoref{sec:ownershiptracking}.
+plane. Migratable pointers are discussed in detail in \autoref{sec:ownershiptracking}.
 
 In addition to sending objects to other machines, the control plane is also
 responsible for receiving objects. Since objects can be migrated at any point
@@ -163,13 +163,13 @@ in time, we must be able to handle incoming objects asynchronously. Upon
 creation, the control plane creates a thread to process incoming migrations.
 
 To give the applications control over what happens to an object after it is
-received, slope will call the function object \texttt{run\_}, passing in the
+received, Slope will call the function object \texttt{run\_}, passing in the
 received object. The application programmer passes this function to Slope upon
 constructing the control plane. In addition to being called when an object is
 received, the \texttt{run\_} function is also called when we introduce an object
 into the control plane by calling \texttt{accept}. The reason for this behavior
 is that \texttt{run\_} is responsible for initializing (``running'') a partition.
-This allows the partitions to be seamlessly initialized on the machine that they
+This allows the partitions to be seamlessly initialized on the machine where they
 are created.
 
 
@@ -182,11 +182,12 @@ other instances and will correctly add them to the circuit to listen for queries
 
 \begin{figure}[tp]
 \begin{lstlisting}
-int main() {
+int mains() {
     mig_ptr<HashTablePartition> partition;
     partition->put("id", get_current_machine_id());
 
     HashTableControlPlane<HashTablePartition> control_plane(
+        // pass a lambda to be used as the run function
         [](mig_ptr<HashTablePartition> partition) {
             std::cout << partition->get("id") << std::endl;
         }
@@ -217,16 +218,17 @@ value set to the machine id. Therefore after executing this line
 on machine ``1'' and $\{"id": "2"\}$ on machine ``2''.
 
 On line 5, the machines create their
-control planes. For demonstration, we pass in a lambda as the \texttt{run\_}
+control planes. For demonstration, we pass in a lambda to be used
+as the \texttt{run}
 function to print the hash table value for key ``id'' when a hash table
 partition is received. After creating the control plane, the application can
 asynchronously receive hash table partitions or use the control plane to
-send object to other machines.
+send objects to other machines.
 
 On line 10, each machine introduces its \texttt{partition} object to the
 migration platform by calling the \texttt{accept} function which in turn calls
 the \texttt{run\_} which we had previously passed to the control plane. Therefore
-after calling accept, each machine can see its own ID written to stdout.
+after calling \texttt{accept}, each machine can see its own ID written to stdout.
 
 On line 12 each machine calculates the ID of its peer and on line 13, creates
 a migration object for sending
@@ -236,3 +238,7 @@ received by the receiver thread of the control plane on the opposite machine.
 Each object will be passed to \texttt{run\_} after it reaches the destination,
 meaning that each of the machines will now see the ID of their peer written
 to their stdout.
+
+Now that we have introduced the Slope API and a high-level example of how
+applications would interact with the migration framework, we turn to an
+in-depth presentation of Slope's design and implementation.
