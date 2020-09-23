@@ -779,10 +779,22 @@ escape of the exception from the function results in undefined behavior.
 \autoref{sec:optim} briefly discusses how we can improve on this by relaxing
 these requirements.
 
+\begin{figure}[tp]
+\centering
+
+\ensurepdffromsvg{migop2.drawio}
+\includegraphics[width=1\textwidth]{migop2.drawio}
+\caption{
+  Interaction between the application and the migration object
+}
+\label{fig:migop}
+\end{figure}
+
+
 The \texttt{migrate} method returns a \texttt{MigrationOperation} object to
 the caller. The application must use this object to carry out the migration.
-This object is a wrapper around a concurrent state machine through which the
-application code and Slope will coordinate to allow the object to be used on
+The application code and Slope will coordinate through the
+\texttt{MigrationOperation} object to allow the object to be used on
 the source for as long as possible.
 
 
@@ -801,13 +813,18 @@ class MigrationOperation {
 \label{fig:migop}
 \end{figure}
 
-\autoref{fig:migop} shows a selection of the API of a migration operation
-object. Blocking counterparts of these methods also exist. Typically after
-receiving this object the source will repeatedly call \texttt{try\_finish\_write()}.
-If the call returns false, the application will do some more work involving
-writes or reads and try again. After a successful call to \texttt{try\_finish\_write()}
+\autoref{fig:migop} sketches the interaction of Slope and application with the
+migration operation object. \autoref{fig:migop} shows a selection of the API of
+a migration operation object. Blocking counterparts of these methods also exist.
+Normally after
+receiving the migration object, the source will repeatedly call \texttt{try\_finish\_write()}.
+If the call returns \emph{false}, the application will do some more work involving
+writes or reads and try again. This allows the source to do useful work instead
+of waiting for the migration to proceed.
+
+After a successful call to \texttt{try\_finish\_write()}
 a similiar scenario repeats where the application keeps calling into
-\texttt{try\_finish\_read()} until success, while doing some readonly work in between
+\texttt{try\_finish\_read()} until success, while doing some read-only work in between
 failures. After \texttt{try\_finish\_read()} is called successfully, the source
 effectively turns over the ownership of the object to the destination.
 
