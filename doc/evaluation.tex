@@ -77,20 +77,23 @@ this operation, excluding lines that serve the purpose of gathering statistics.
 
 Naturally, the prefill phase takes up most of the transfer time, which grows
 linearly by increasing the size of the object. The increasing gap between the
-prefill duration and the end to end latency can be attributed to syscalls and
-invocation of the signal handler, both of which increase linearly with the
+prefill duration and the end to end latency can be attributed to the number
+of syscalls that Slope makes that grow linearly with the
 number of pages that are transferred before or after the prefill phase. The
 time it takes to turn over the ownership is not impacted by the
 size of the object and oscillates between tens of microseconds and hundreds
 of microseconds. This is expected as this step consists of a single RDMA SEND.
 
 \autoref{fig:vectorreadonly} shows that we are using about a hundredth of our 100 Gbps
-network bandwidth and that the prefill phase is highly CPU bound. To use the
+network bandwidth. The prefill phase is highly CPU bound as it involves no
+synchronization between different threads, no operation that blocks the data
+transfer, and no other threads that compete to run on the CPU.
+To use the
 network bandwidth more effectively, we can increase the granularity of our
-memory allocation unit by using huge pages. \autoref{fig:vectorreadonlyhp} shows
-how using huge pages allows us to use around a fifth of our network bandwidth.
+memory allocation unit by using 2MB huge pages. \autoref{fig:vectorreadonlyhp} shows
+how using 2MB huge pages allows us to use around a fifth of our network bandwidth.
 Furthermore, a 500-fold decrease in the number of allocation units decreases
-the overal CPU cycles we spend for per-page operations in the memory allocator
+the overall CPU cycles we spend for per-page operations in the memory allocator
 and the control and data planes.
 
 \subsection{Migrating a vector while dirtying all of its pages}
@@ -130,7 +133,7 @@ over again on each side.
 
 Similar to the case with a read-only vector, we repeat the experiment with huge
 pages. \autoref{fig:vectorwriteallhp} shows the result. The result resembles
-those in \autoref{sec:cleanvec}, except here the elapsed time excluding the
+those in \autoref{fig:vectorreadonlyhp}, except here the elapsed time excluding the
 prefill duration and the dirty page transfer duration is still significant. This
 is contributed by the source machine having to execute the signal
 handler while looping over the pages and dirtying them, after the
@@ -159,7 +162,7 @@ prefill phase and before the final transfer phase.
 
 
 In this section we discuss the case for migrating a bloom filter while it is
-being queried. A bloom filter is a migration friendly object because
+being queried. A bloom filter is a migration-friendly object because
 no operation on the bloom filter causes a memory allocation after we initialize
 the object. The supported operations (put, get) only read or modify memory
 locations.
@@ -175,14 +178,14 @@ filters is close to 800MB.
 \autoref{fig:bloomfilter} shows the timeline of the events and the throughput
 of each of the operations on the two bloom filter objects present in the system
 on either of the machines as we migrate BF1. We are using 4KB pages in this
-case and BF1 consists of 200000 pages. Around 60\% of those were dirtied during
+case and BF1 consists of 200,000 pages. Around 60\% of those were dirtied during
 the migration.
 
 During the prefill period (~2200ms to ~7000ms), both objects see a decrease in
 the number of writes. As the writer thread gets blocked inside the signal
 handler while writing to the BF1 object, both BF1 and BF2 writes are equally
 impacted since they equally share the writer thread. On the other hand, read
-throughput on both objects stay the same as the reader thread never gets
+throughput on both objects stays the same as the reader thread never gets
 blocked.
 
 At around 7000ms we take away the write access to BF1 from the source, but
@@ -199,8 +202,8 @@ throughput.
 
 
 \autoref{fig:bloomfilterhp} shows the same timeline in the case of using
-huge pages. 383 huge pages where transferred and 256 of them were dirtied
-by writes during the prefill phase. The overall flow of operations is similar
+huge pages. During the prefill phase 383 pages were transferred and
+256 of them were dirtied by writes. The overall flow of operations is similar
 to the previous case, but
 the application enjoys much shorter times across all metrics including the
 end to end latency and read and write unavailability periods.
@@ -257,7 +260,12 @@ performance factor because the operations
 on the map that were needed to dirty the underlying pages of MP dominate
 the migration duration.
 
-
+Our benchmarks show that Slope can benefit from larger memory units, as they
+allow us to take better advantage of our network hardware. We can also make
+more use of the available bandwidth by carrying out the migration steps using
+multiple threads on the Slope side. This may complicate the communication
+between the application and Slope during the migration, but allows us to
+saturate the network bandwidth.
 
 % \TODO{this model encourages fixed objects, where you don't need to allocate repeatedly: bloom filter, hash table with fixed size values + ds's where access is local}
 %\TODO{build a function as a service framework on this}
