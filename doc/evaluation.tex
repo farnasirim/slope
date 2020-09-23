@@ -6,6 +6,10 @@ benchmarks for select applications. We also discuss
 the metrics that the applications using Slope can measure to get a sense of
 how much Slope is impacting their performance.
 
+In our test cluster each machine is equipped with an Intel Xeon E5-2680 CPU,
+128 GBs of physical memory and a 100Gbps ConnectX-4 Infiniband RDMA-capable
+network adapter. We are running Linux Kernel version 4.19.49.
+
 To measure times and calculate performance metrics globally in the cluster,
 we synchronize the start time from one machine to all other machines in the
 cluster, by estimating the round trip time between them, which we do by
@@ -20,6 +24,7 @@ the resulting value from the above calculation on multiple runs with the same
 configuration. Even without eliminating the outlying points, the standard errors
 of our measurements are negligible (i.e. multiple orders of magnitude smaller)
 compared to the reported values, unless otherwise stated.
+
 
 Looking at each sub-system in Slope, one can define certain metrics that
 reflect if that sub-system is working efficiently. For example we measure

@@ -54,7 +54,7 @@ backwards incompatible with existing C++ software.
 
 \paragraph{Usability:}
 We present a programming model for migratable objects which makes them
-usable in listen and server applications as discussed in
+usable in listen-and-serve applications as discussed in
 \autoref{sec:api}, showing how this model can be used for high performance
 applications in the real world.
 
@@ -66,24 +66,25 @@ agree about a migration taking place outside of a controlled experiment.
 \paragraph{Migration performance:}
 Based on the type of workload, Slope benefits from prefilling the
 destination machine's memory, resulting in smaller hand-off times and
-quicker convergence to the steady state throughput.
+quicker convergence to the steady-state throughput.
 
 
 RAMP only starts transferring the contents of a memory segment after
 the segment ownership has been transferred. This results in its
 convergence period or its window of unresponsiveness to go up to hundreds
 of milliseconds for a 128 MB segment, while Slope can keep this window as
-as short as $50\mu$s.
+short as $50\mu$s.
 
-In Slope the number of parallel migrations between \emph{each pair}
-of machines at any given time is only bounded by the number of receives
-pre-posted to their RDMA queue pairs, whereas in RAMP, at any point in time
-there can be at most a single migration in the \emph{whole cluster}.
+in RAMP, at any point in time there can be at most a single migration
+in the \emph{whole cluster}. In Slope the number of parallel migrations
+between \emph{each pair} of machines at any given time is only bounded by
+a run-time parameter.
 
 
 \paragraph{Memory allocation performance:}
-Slope uses pooled memory allocation and lazy deallocations to handle
-memory allocation in a peer-to-peer fashion.
+Slope uses pooled memory allocation and lazy deallocation to handle
+memory allocation within the shared virtual address space
+in a peer-to-peer fashion.
 
 RAMP uses a Zookeeper cluster to keep track of memory allocations.
 RAMP not only relies on an external service which possibly
@@ -91,18 +92,7 @@ operates on a slower network, but also is susceptible to contention
 when multiple servers race to allocate memory segments.
 
 
-\section{Shared memory and RDMA based systems}
-Herd \cite{kalia2016designguidelines} discusses guidelines that can be
-used by RDMA applications for improved performance. We used many of their
-insights in our implementation.
-
-
-Signal handlers are an important part of the design of TreadMarks
-\cite{amza1996treadmarks}. They provide an on-demand lazy release
-consistency model by flushing dirty cache lines on-demand. However the main
-goal of TreadMarks is minimizing
-network communication, which is not a suitable goal for Slope given that we
-want to optimize our design for high throughput Infiniband hardware.
+\section{RDMA-based systems and distributed shared memory}
 
 Multiple systems have provided designs
 for high performance RPC, transaction processing, or shared memory over
@@ -125,25 +115,41 @@ the programming model to transaction processing or RPCs.
 This direction only aligns with the goals of Slope in the cases where we
 need to migrate a large number of relatively small objects. This suggests
 that an RPC communication model might be better suited for such an
-application than the migration model. Nevertheless, these systems
-can be plugged into Slope as its control plane to improve its performance
-in the cases where there are relatively large number of objects being
-migrated at certain points in time.
+application than the migration model.
 
 Given that the design of Slope focuses on in-memory data structures, there
 is a lot of potential in using specialized memory hardware. DrTM
 \cite{drtm2017} builds on hardware transactional memory and RDMA
 to achieve high throughput transaction processing.
 Hotpot \cite{Shan2017distributed} and Octopus \cite{Lu2017rdmadistributed}
-use persistent memory to build distributed shared memory.
+use persistent memory to build distributed shared memory. Hotpot is a
+kernel-level system, whereas in Slope, we aim to for minimum changes to
+the application and the run-time environment.
+Octopus mostly focuses on the performance of distributed
+transactions by co-designing the network and the storage layer. Conversely,
+Slope targets in-memory applications.
+
+TreadMarks \cite{amza1996treadmarks} provides an on-demand lazy release
+consistency model by flushing dirty cache lines on-demand. However the main
+goal of TreadMarks is minimizing network communication, which is not a
+suitable goal for Slope given that we want to optimize our design for high
+throughput Infiniband hardware. Signal handlers are an important part of the
+design of both TreadMarks and Slope. TreadMarks uses them to achieve low IO
+wait. In addition to that, their lazy release consistency protocol is based
+on invalid memory access signals. In Slope we use signal handlers to be notified of certain memory access events that happen during object migration.
+
 
 \section{Distributed memory allocation}
-Distributed memory allocation problem generally arises in the form of managing
-a globally accessible, uniform resource in a distributed manner. As a result
+Distributed memory allocation systems usually deal with
+allocating/deallocating chunks of memory across the cluster, as if the machines
+in the cluster had combined their main memories resulting in a large,
+cluster-wide main memory. As a result
 many of these systems provide transactional APIs for allocating memory,
 whereas in
-Slope, the shared virtual address space dictates that the global address space
-is non-uniform with every machine being responsible for a fixed part of it.
+Slope, the shared resource is the \emph{virtual} address space that can be much
+larger than the total physical memory available in the cluster. This allows us
+to provide a simpler and more effective approach for distributed memory
+management.
 
 Even though the overall problems that these systems discuss are different from
 what we face in Slope, we can reuse their solutions to specific sub-problems that
@@ -151,8 +157,8 @@ also appear in Slope. X10 \cite{charles2005x10} provides distributed memory
 abstraction in the language level and their approach might be useful for
 future extensions in Slope's API. Sinfonia \cite{aguilera2007sinfonia} uses
 two phase commits to maintain consistency and Argo \cite{kaxiras2015turning}
-optimizes for making DSM control plane decisions locally at each node, both of
-which share sub-problems with Slope.
+optimizes for making distributed shared memory control plane decisions
+locally at each node, both of which share sub-problems with Slope.
 
 \section{Database migration and replication}
 Derecho \cite{jha2019derecho} aims to provide state machine replication
@@ -163,23 +169,19 @@ for cloud applications and shares some core concepts with Slope, for
     migration boundaries.
 
 ProRea \cite{ProRea2013} and Zephyr \cite{zephyr2011elmore} are live
-database migration methods similar in terminology Slope which is a
+database migration methods similar in terminology to Slope, which is a
 data structure migration engine. However in these systems much effort goes
 towards conflict resolution and handling the ``dual ownership''
 time-window, whereas in Slope we avoid dual ownership of objects
-altogether to support the notion of the objects being memory resident
+altogether to support the notion of the objects being memory-resident
 rather than view them as entries in a storage system.
 
 \section{Target hardware platform}
-RDMA networking is central to the design of Slope. Therefore we assume Slope
+The RDMA networking is central to the design of Slope. Therefore we assume Slope
 is going to be run on clusters of machines interconnected with RDMA-capable
 networking hardware and equipped with a large amount of physical memory. We
 also assume that the machines have the same endianness and can run the same
 application binary.
-
-In our test cluster each machine is equipped with an Intel Xeon E5-2680 CPU,
-128 GBs of physical memory and a 100Gbps ConnectX-4 Infiniband RDMA-capable
-network adapter. We are running Linux Kernel version 4.19.49.
 
 \section{RDMA background}
 RDMA programming model turns out to be a good fit for the networking
@@ -221,34 +223,31 @@ QPs on the same host. The two QP structures then have to be introduced to
 each other by transitioning them through multiple states, namely init, ready to
 receive, and ready to send.
 
-At certain points during these transition, each
+At certain points during these transitions, each
 QP end needs to know about the \texttt{lid} of the remote Infiniband port to
 be able to identify and reach that port through the subnet. Naturally the
 remote \texttt{qp\_num} has to be known for each QP end to be able to
 distinguish and correctly select the target QP end's \texttt{qp\_num}.
 Applications need to improvise their own methods of exchanging these two
 pieces of information, typically called the out of band rendezvous and ready to
-send protocols. We use memcached for this where every participating machine
-registers the \texttt{lid} and \texttt{qp\_num} corresponding to each of its
-QPs, alongside the intended remote node of this QP under that machine's key.
-The number of machines and their registration keys
-are known at the execution time of the program by all instances. After
-publishing their information each machine goes through the keys corresponding
-to other servers and blocks until finding their QP information in memcached.
-After that each server $S$ selects the QPs whose intended remote node equals
-$S$ and with the \texttt{lid} and \texttt{qp\_num} of that QP at hand, it
-transitions the QP through the required states to make it ready to use. This
-only happens at the initialization of the cluster after which we never use
-the memcached instance again.
+send protocols. In Slope, we use memcached to exchange this information on
+cluster initialization.
 
 From this point on, each machine can use any of its QPs to exchange data with
 the other end of the QP through the use of RDMA verbs. The QP APIs are
 asynchronous, meaning the application calls into the Infiniband library to
-``posts'' operations to the QPs, and ``poll'' the completion of certain events
+``post'' operations to the QPs, and ``poll'' the completion of certain events
 such as the completion of a send request.
 
+To know about which operations have been completed, applications must poll the
+Completion Queue (CQ) structure.
+Each QP is associated with one CQ. Applications may decide that some of their
+QPs share a single CQ to reduce the number of separate structures that they
+have to poll. As a result of polling the CQ, the application is handed
+Completion Queue Entries (CQEs) which reveal the source of the completion.
+
 To send data using the RDMA SEND verb, the application needs to ``post'' one
-or more send Work Requests (WRs) to the send queue of a QP. Among other fields
+or more SEND Work Requests (WRs) to the send queue of a QP. Among other fields
 to control its behavior, a WR consists of one or more
 continuous memory ranges that need to be sent through a QP. Each of these
 is called a Scatter-Gatter Element (SGE). However the network device must be
@@ -287,19 +286,12 @@ the virtual address space of the remote machine, and must be contained in an
 MR. The caller also needs the know the remote key (\texttt{rkey}) of the target
 MR in the remote machine. Similar to the case with \texttt{lid} and
 \texttt{qp\_num}, the application has to arrange for the \texttt{rkey} to be
-transferred to the caller before it can call one sided VERBS. However with the
-QPs now established, we do not necessarily need to rely on an out of band
+transferred to the caller before it can call one-sided VERBS. However with the
+QPs now established, we do not necessarily need to rely on an out-of-band
 communication mechanism to hand off \texttt{rkey}s as they can be sent using
 RDMA SEND and RECV verbs.
 
 We also use a variant of WRITE called ``WRITE with immediate values'', which
-differs to a WRITE in that it generates a completion in the CQ of the
+differs from a WRITE in that it generates a completion in the CQ of the
 remote QP.
-
-To know about which operations have been completed, applications must poll the
-Completion Queue (CQ) structure.
-Each QP is associated with one CQ. Applications may decide that some of their
-QPs share a single CQ to reduce the number of separate structures that they
-have to poll. As a result of polling the CQ, the application is handed
-Completion Queue Entries (CQEs) which reveal the source of the completion.
 
