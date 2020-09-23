@@ -32,7 +32,7 @@ were not using anyway, to get an edge in performance by getting rid of the
 overheads that are present only to handle use cases that we are not interested
 in.
 
-One ubiquitous subset of applications with such property are
+One ubiquitous subset of applications with such a property are
 ones with data that is partitionable such that the majority of data
 accesses from one operation fall in that one partition only.
 This is desirable because it improves access locality, as
@@ -45,6 +45,18 @@ These applications may randomly partition data (e.g., in-memory distributed
 hash tables) or partition the data based on the values from particular fields
 in the data (e.g., web application
 user behavior statistics).
+
+Throughout this document, we will use the term \emph{system} to refer to
+kinds of software that accomplish an infrastructural goal. They are aimed at
+taking away certain pains from higher level software. High level software
+usually runs and depends on one or more \emph{systems}.
+Conversely, we use the term \emph{application} to refer to higher level
+software that makes use of a \emph{system}.
+\emph{System designer} and \emph{application designer/programmer} are
+defined accordingly. As an example, when we
+discuss the design of Slope, we wear the hat of a system designer, and when
+discussing how an application is programmed to run on top of Slope, we act as
+an application designer.
 
 
 \section{Solving the locality/load balancing equation}
