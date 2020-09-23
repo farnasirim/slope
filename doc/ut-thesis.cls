@@ -556,7 +556,7 @@
       {\@author}\\
       \vfill
       \vfill
-      A thesis submitted in conformity with the requirements\\
+      A research paper submitted in conformity with the requirements\\
       for the degree of {\@degree}\\
       Graduate Department of {\@department}\\
       University of Toronto\\
