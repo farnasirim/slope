@@ -698,7 +698,7 @@ retransferring the affected pages.
 % in 4KB page granularity, while transfer can be done in larger units, depending
 % on the contiguity of the memory section that is being transferred.
 
-
+\label{migration_protocol_start_label}
 \section{Migration protocol}
 \label{sec:migrationprotocol}
 
@@ -713,6 +713,7 @@ of Slope at different stages during the migration timeline.
 \caption{
     Slope migration protocol starting from object creation. Time progresses
     downwards.
+    The steps illustrated here are described on pages \pageref{migration_protocol_start_label} to \pageref{migration_protocol_end_label}.
 }
 \label{fig:migrationprotocol}
 \end{figure}
@@ -854,7 +855,7 @@ signaling that it has pinned all of the required pages.
 
 \subsubsection{Prefill}
 The goal of the prefill phase is to warm up the destination machine's memory to
-minimize the window of time during which none of the two participating machines
+minimize the window of time during which neither of the two participating machines
 own the target object. No machine can read from or write to the object during
 that time. Therefore a long window with no owner means a long throughput
 and latency hiccup as the application does not make any progress.
@@ -867,10 +868,9 @@ despite not having permission to change the memory layout of the object
 in any way by allocating or deallocating memory. We optimistically do the above
 transfer knowing that some of the pages might need to be retransferred as they
 are written to by the source machine after they are sent to the destination.
-We will refer to these pages as dirty pages. While pages can be
-dirtied, we go through the prefill phase, hoping that one of the
-machines (namely the source machine) will be able to partially function during
-this phase, while dirtying a small percentage of the pages.
+We will refer to these pages as dirty pages. We go through the prefill phase,
+hoping that the application on the source machine will be able to partially
+function during this phase, while dirtying a small percentage of the pages.
 
 \paragraph{Source} will need to prefill the pages one by one. For each page
 we first protect it from write accesses such that it can be read safely
@@ -910,7 +910,7 @@ This will be done using memory mapping protections and manually
 handling signals that
 are raised as a consequence of invalid accesses to the protected memory pages.
 
-Machines use overridden behaviors for handling the \texttt{SIGSEGV} signal
+Applications use overridden behaviors for handling the \texttt{SIGSEGV} signal
 to prevent the program from terminating on invalid memory references.
 The \texttt{SIGSEGV} handler is installed at program start.
 It is important to keep in mind that
@@ -937,7 +937,7 @@ RDMA WRITE to finish before adding the \texttt{PROT\_WRITE} permission flag to
 the page. In our
 implementation we use a status flag and a condition variable for each page
 to manage its write accesses inside the signal handler. The status flag
-corresponding to a page shows whether or not the RDMA operation on a that page
+corresponding to a page shows whether or not the RDMA operation on that page
 has finished, hence allowing us to write to it, and the condition variable
 is used to wake up the threads waiting for the status flag to be set.
 
@@ -977,10 +977,15 @@ and how they cooperate in dirty page detection in the prefill phase.
 \subsubsection{Transfer of ownership}
 \label{sec:transowner}
 After the prefill phase Slope will wait for the application to give up its write
-access to the object. Using this information, Slope will finalize the dirty
-pages of the object and retransfer them to the destination. When the
-application eventually turns over the read access too, the ownership is passed
-to the destination which will be allowed to write to or read from the object,
+access to the object
+with a call to \texttt{try\_finish\_write()}. Once Slope has reached
+this state, \texttt{try\_finish\_write()} will return \emph{true} to the application,
+and the application must not subsequently write to the object.
+This means the state of the dirty pages of the object is now final and
+Slope can retransfer them to the destination. When the
+application eventually turns over the read access too (by a successful call
+to \texttt{try\_finish\_read()}), the ownership is passed
+to the destination allowing it to write to or read from the object,
 as well as allocating or deallocating memory on behalf of it.
 
 \paragraph{Destination} receives the completions for the prefill RDMA WRITEs.
@@ -994,12 +999,23 @@ finally give up the ownership of the object.
 \texttt{try\_finish\_write()} and \texttt{try\_finish\_read()} (or their
 blocking counterparts) to allow Slope to proceed with the migration.
 
-Until the call to \texttt{try\_finish\_write()}, the application is 
+Until the call to \texttt{try\_finish\_write()} succeeds, which only happens
+after Slope completes the prefill phase, the application is
 semantically allowed to write to the object pages, but ideally it will
 transition to a ``pre-transfer'' mode after the initial migration
-initiation. In this phase the application will try to do mostly read-only
+initiation. In this phase the application should try to do mostly read-only
 accesses to avoid dirtying too many pages as this will cause the migration
 to be done less efficiently with more pages that need to be transferred twice.
+
+A call to \texttt{try\_finish\_read()} may succeed anytime after a call to
+\texttt{try\_finish\_write()} returns \emph{true}. Timing this call depends on the
+application. The earlier the source finishes the reads, the faster the
+ownership is be given to the destination, but the destination can access the
+object only partially until the dirty pages are retransferred. By delaying the
+call, the source can maintain read-only access to the object for a longer time
+and the destination will have more time to retransfer the dirty pages, but
+transferring the ownership (and therefore write access) to the destination
+will be delayed.
 
 After the application gives up its read and write access to the object,
 Slope will use the dirty
@@ -1042,6 +1058,7 @@ safely \texttt{munmap}s the memory underlying the ``old'' target object. At
 this point the state on the source looks as if the target object had never existed
 there.
 
+\label{migration_protocol_end_label}
 
 \section{Optimizations and Corner cases}
 \label{sec:optim}
@@ -1144,3 +1161,12 @@ allocation context stacks and maintain them per thread, while maintaining
 allocation mapping and inverse mapping globally. We therefore need to
 synchronize accesses from multiple threads to these resources at certain points
 in the \texttt{allocate()} and \texttt{deallocate()} functions.
+
+Carrying out the migration operation through the \texttt{MigrationOperation}
+in a multi-threaded environment is the responsibility of the application. E.g.,
+The application on the source machine has to ensure that it stops all of
+its threads from writing to the object before giving up the write access.
+
+This concludes the design of Slope and the migration protocol at its core.
+Next, we will show how Slope performs as a migration platforms in applications
+with different needs.
