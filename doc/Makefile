@@ -48,4 +48,4 @@ all: #bench-readonly.pgf bench-writeall.pgf bench-readonly-hp.pgf  bench-writeal
 
 
 clean:
-	$(RM) thesis.pdf *.aux *.bak *.bbl *.blg *.log *.out *.toc *.brf *.loa *.lot *.pgf
+	$(RM) thesis.pdf *.aux *.bak *.bbl *.blg *.log *.out *.toc *.brf *.loa *.lot
