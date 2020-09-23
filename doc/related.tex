@@ -42,10 +42,10 @@ allocator, including STL containers, can be made migratable through Slope
 with little programming effort. In less than 10 lines of code an application
 programmer can create
 migratable entities from
-allocator aware data structures (e.g., \texttt{std::vector>}) and migrate them to
+allocator-aware data structures (e.g., \texttt{std::vector>}) and migrate them to
 a second machine. Furthermore Slope benefits
 from the composition friendliness of the objects that conform to C++ 
-allocator named requirement, making it easy to create complex migratable
+allocator \emph{named requirement}\cite{cppnamedreqalloc}, making it easy to create complex migratable
 types from simple building blocks.
 
 RAMP in contrast only discusses migration in the granularity of memory segments
