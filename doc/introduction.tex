@@ -83,7 +83,7 @@ which creeps into the design of the hash table and its core algorithms.
 Design decisions like this make applications harder to maintain as their
 core algorithms will become dependent on low level system properties.
 In such an application the algorithms and data structures which the system uses
-are no longer well defined black boxes that can be seamlessly improved. As a
+are no longer well-defined black boxes that can be seamlessly improved. As a
 result, the overall design of the system will be closed to additions, and we
 will be stuck with restricted APIs and specific guarantees on how they work.
 While changing the internal algorithms, we must worry about not breaking our own
@@ -112,7 +112,7 @@ of \emph{whole distributed systems}.
 The platform will then ensure that each partition can run correctly, while
 allowing application partitions to migrate between machines in the cluster
 to prevent over-subscription of the resources of each machine. As a result,
-Not only will the application achieve load balancing without
+not only will the application achieve load balancing without
 much effort,
 but also it will end up with a simpler design, with all
 of the logic for a distributed environment being managed by the framework,
@@ -271,7 +271,7 @@ out of the core application code.
 \section{Contributions}
 We extend the notion of migratability that is
 introduced in RAMP \cite{memon2018ramp} to data structures and in general,
-self-containing units of work in distributed applications.
+self-contained units of work in distributed applications.
 We introduce
 the properties of migration-friendly applications in the real world and discuss
 how they would interface with an object-based migration platform, in a way
