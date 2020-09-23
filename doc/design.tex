@@ -276,7 +276,7 @@ for leases at the same time.
 We have chosen C++ as the platform to implement Slope, mainly because we need
 to directly access process memory and manage the way it is allocated and used.
 We implement \texttt{slope::memory::Allocator<T>} which is a memory allocator
-conforming to the C++ allocator name requirement (e.g. providing
+conforming to the C++ allocator name requirement (e.g., providing
 \texttt{allocate()} and \texttt{deallocate()}). It will internally satisfy the
 local and global memory requirements of Slope following the protocols discussed
 in \autoref{sec:localmem} and \autoref{sec:globalmem}.
@@ -360,7 +360,7 @@ A possible implementation for the \texttt{UserDefinedType} shown in
 \autoref{fig:migratableuserdefined} might look like \autoref{fig:userdefinedtype}.
 The class uses the allocator type passed to it to carry out any memory
 allocations. Notice how the allocator can be conveniently passed down to the
-class members (e.g. \texttt{std::vector<T, Allocator>}), showing the
+class members (e.g., \texttt{std::vector<T, Allocator>}), showing the
 composition-friendliness of using allocators classes that conform with C++ named
 requirements.
 
@@ -521,8 +521,8 @@ the top of the stack will be set as the owner of the allocated memory.
 
 Another important purpose that the \texttt{mig\_ptr} class template serves is
 constructing the object itself. In addition to the memory allocations done
-\emph{by} the object (e.g. allocating the underlying array by \texttt{std::vector}),
-the object memory itself (e.g. \texttt{std::vector} object) must be placed in
+\emph{by} the object (e.g., allocating the underlying array by \texttt{std::vector}),
+the object memory itself (e.g., \texttt{std::vector} object) must be placed in
 migratable memory. This is an important step since we are not necessarily able
 to construct the object elsewhere and then manually move it into the migratable
 memory.
@@ -589,12 +589,12 @@ as Java, which takes away this direct access, making the objects relocatable.
 
 Even though Java provides certain features for portability and compatibility,
 For some applications the overhead of being run in a managed environment
-(e.g. under a garbage collector) is intolerable. A typical family of these
+(e.g., under a garbage collector) is intolerable. A typical family of these
 applications is distributed transaction
 processing engines which includes Silo \cite{tu2013silo}, DrTM \cite{drtm2017},
 and FaRM \cite{Dragojevic2014FaRM}. These are implemented in C++ to
 reach the maximum possible performance and usually depend on lower level
-components such as concurrent b-trees (e.g. Masstree \cite{mao2020masstree}).
+components such as concurrent b-trees (e.g., Masstree \cite{mao2020masstree}).
 
 Our motivation in using C++ for the design of Slope stems from the difficulty
 of scaling such applications beyond a single node or designing them for a
@@ -611,7 +611,7 @@ We can in fact use Slope to implement
 an automatic layer of serializability or a migration platform in a higher
 level language like Java with the possible added performance cost of running on
 top of JVM. On the other hand, such a system can provide an API that is simpler
-to use for the programmers since many of the house keeping tasks (e.g.
+to use for the programmers since many of the house keeping tasks (e.g.,
 \texttt{create\_context()}) are already done or partially taken care of by the JVM.
 
 
@@ -668,7 +668,7 @@ established queue pairs to carry out the operation.
 % can be replaced entirely with any other RPC mechanism that achieves better
 % performance.
 
-% For co-ordination between machines (e.g. rendezvous protocol and transition
+% For co-ordination between machines (e.g., rendezvous protocol and transition
 % to ready to send state)
 % an out of band communication mechanism has to be used. We use memcached where 
 % every node registers its queue pair and memory region parameters and

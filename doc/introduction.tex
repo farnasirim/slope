@@ -41,9 +41,9 @@ the system designer in these systems boils down to partitioning data and
 operations to minimize cross-partition requests, and find a strategy to
 distribute the load of the partition evenly across the cluster.
 
-These applications may randomly partition data (e.g. in-memory distributed
+These applications may randomly partition data (e.g., in-memory distributed
 hash tables) or partition the data based on the values from particular fields
-in the data (e.g. web application
+in the data (e.g., web application
 user behavior statistics).
 
 
@@ -94,7 +94,7 @@ Is it possible to select a subset of partitionable applications
 and provide well defined machinery for their data sharing? If this data sharing
 framework supports moving the partitions between the machines with minimal
 interference with the algorithms' execution inside the partition, without
-sacrificing performance (e.g. through serialization and deserialization), the
+sacrificing performance (e.g., through serialization and deserialization), the
 application designers can comfortably design \emph{single partitions}, instead
 of \emph{whole distributed systems}.
 
@@ -129,7 +129,7 @@ out of the core application code.
 % \TODO{mention masstree or similar, and some usages?} in the application are
 % both research trends in developing what we call \emph{data structure centric}
 % applications \TODO{citations/examples?}. Indeed the operating system kernel provides networking and high
-% level interface to useful data structures (e.g. through the interface of file
+% level interface to useful data structures (e.g., through the interface of file
 % systems) but for high performance applications, the performance gain from using
 % a specialized way of managing data is worth the complexity.
 % Some of these systems target low latency, but all of them have to provide
@@ -163,7 +163,7 @@ out of the core application code.
 % consistency requirements of the system.
 % 
 % Not paying attention to the locality constraints and remote access penalties
-% and simply contending for resources results (e.g. optimistic concurrency
+% and simply contending for resources results (e.g., optimistic concurrency
 % control) will result in poor performance in workloads with highly contended
 % accesses.
 % 
@@ -218,8 +218,8 @@ out of the core application code.
 % 
 % Sharding techniques are also used extensively, allowing system designers to
 % choose almost any point in the spectrum of design space between high-locality;
-% coarser load balancing (e.g. partitioning user data by user id) and
-% low-locality; better load balancing (e.g. random sharding).
+% coarser load balancing (e.g., partitioning user data by user id) and
+% low-locality; better load balancing (e.g., random sharding).
 % 
 % An important property of some of these designs is modularity, as
 % a result of the problem space being composable, with similarities to how the
